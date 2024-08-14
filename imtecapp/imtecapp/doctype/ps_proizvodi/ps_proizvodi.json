@@ -1,0 +1,93 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-08-13 17:00:39.323206",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+     "reference",
+     "name",
+     "price",
+     "active",
+     "quantity",
+     "category",
+     "manufacturer",
+     "presta_product_id",
+     "presta_category_id",
+     "presta_manufacturer_id",
+     "sync_with_prestashop"
+    ],
+   "fields": [
+      {
+        "fieldname": "presta_product_id",
+        "fieldtype": "Data",
+        "label": "PrestaShop Product ID"
+      },
+      {
+          "fieldname": "presta_category_id",
+          "fieldtype": "Data",
+          "label": "PrestaShop Category ID"
+      },
+      {
+          "fieldname": "presta_manufacturer_id",
+          "fieldtype": "Data",
+          "label": "PrestaShop Manufacturer ID"
+      },
+       {
+         "fieldname": "reference",
+         "fieldtype": "Data",
+         "label": "Reference",
+         "length": 100
+       },
+       {
+        "fieldname": "sync_with_prestashop",
+        "fieldtype": "Check",
+        "label": "Sync with PrestaShop"
+    },
+       {
+         "fieldname": "name",
+         "fieldtype": "Data",
+         "label": "Name",
+         "length": 255
+       },
+       {
+         "fieldname": "price",
+         "fieldtype": "Currency",
+         "label": "Price"
+       },
+       {
+         "fieldname": "active",
+         "fieldtype": "Check",
+         "label": "Active"
+       },
+       {
+         "fieldname": "quantity",
+         "fieldtype": "Int",
+         "label": "Quantity"
+       }
+     ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-08-13 17:00:39.323206",
+ "modified_by": "Administrator",
+ "module": "ImtecApp",
+ "name": "PS Proizvodi",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

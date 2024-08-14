@@ -1,0 +1,112 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-08-13 21:59:58.780507",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "art_sifra",
+  "agp_id",
+  "sifra",
+  "vpc",
+  "aktivan",
+  "stanje",
+  "art_naziv",
+  "kataloski",
+  "grupanaziv",
+  "proizvodjac",
+  "hash"
+ ],
+ "fields": [
+  {
+   "fieldname": "art_sifra",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Artikal Sifra",
+   "length": 100,
+   "reqd": 1
+  },
+  {
+   "fieldname": "agp_id",
+   "fieldtype": "Data",
+   "label": "AGP ID",
+   "length": 100
+  },
+  {
+   "fieldname": "sifra",
+   "fieldtype": "Data",
+   "label": "Sifra",
+   "length": 100
+  },
+  {
+   "fieldname": "vpc",
+   "fieldtype": "Currency",
+   "label": "VPC"
+  },
+  {
+   "default": "0",
+   "fieldname": "aktivan",
+   "fieldtype": "Check",
+   "label": "Aktivan"
+  },
+  {
+   "fieldname": "stanje",
+   "fieldtype": "Int",
+   "label": "Stanje"
+  },
+  {
+   "fieldname": "art_naziv",
+   "fieldtype": "Data",
+   "label": "Naziv Artikla",
+   "length": 255
+  },
+  {
+   "fieldname": "kataloski",
+   "fieldtype": "Data",
+   "label": "Kataloski Broj",
+   "length": 100
+  },
+  {
+   "fieldname": "grupanaziv",
+   "fieldtype": "Data",
+   "label": "Naziv Grupe",
+   "length": 255
+  },
+  {
+   "fieldname": "proizvodjac",
+   "fieldtype": "Data",
+   "label": "Proizvodjac",
+   "length": 255
+  },
+  {
+   "fieldname": "hash",
+   "fieldtype": "Data",
+   "label": "Hash",
+   "length": 32
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-08-14 02:45:19.367014",
+ "modified_by": "Administrator",
+ "module": "ImtecApp",
+ "name": "Proizvodi",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
