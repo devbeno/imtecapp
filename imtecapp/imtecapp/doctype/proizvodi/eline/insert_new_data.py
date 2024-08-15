@@ -111,10 +111,19 @@ def make_get_request(url, headers):
 
 def generate_item_hash(item):
     try:
-        hash_input = (
-            f"{item.get('art_sifra', '')}{item.get('vpc', 0)}{item.get('aktivan', 0)}{item.get('stanje', 0)}"
-            f"{item.get('art_naziv', '')}{item.get('kataloski', '')}{item.get('grupanaziv', '')}{item.get('proizvodjac', '')}"
-        )
+        # Normalize the data
+        normalized_data = {
+            "art_sifra": item.get("art_sifra", "").strip().lower(),
+            "vpc": float(item.get("vpc", 0)),
+            "aktivan": bool(item.get("aktivan", 0)),
+            "stanje": int(item.get("stanje", 0)),
+            "art_naziv": item.get("art_naziv", "").strip().lower(),
+            "kataloski": item.get("kataloski", "").strip().lower(),
+            "grupanaziv": item.get("grupanaziv", "").strip().lower(),
+            "proizvodjac": item.get("proizvodjac", "").strip().lower(),
+        }
+        # Serialize to JSON and hash
+        hash_input = json.dumps(normalized_data, sort_keys=True)
         return hashlib.md5(hash_input.encode()).hexdigest()
     except KeyError as e:
         create_log(

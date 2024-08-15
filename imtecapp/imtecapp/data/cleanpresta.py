@@ -1,12 +1,8 @@
-import aiohttp
-import asyncio
+import requests
 import base64
 import xml.etree.ElementTree as ET
 from tqdm import tqdm
 import frappe
-
-api_url = "APXHV1BE9ZISZQMDFEYVE6HKXPXJIGBH"
-api_url = "http://test2.imtec.ba/api"
 
 
 class PrestaShopAPI:
@@ -19,95 +15,99 @@ class PrestaShopAPI:
             "Content-Type": "application/xml",
         }
 
-    def _send_request(self, session, method, resource, data=None):
+    def _send_request(self, method, resource, data=None):
         url = f"{self.api_url}/{resource}"
-        with session.request(
-            method, url, headers=self.auth_header, data=data
-        ) as response:
-            if response.status >= 400:
+        response = requests.request(method, url, headers=self.auth_header, data=data)
+        if response.status_code >= 400:
+            raise Exception(f"Error {response.status_code}: {response.text}")
+        return response.text
 
-    def create_product(self, session, product_data):
-        return await self._send_request(session, "POST", "products", product_data)
-
-    def update_product(self, session, product_id, product_data):
-        return await self._send_request(
-            session, "PUT", f"products/{product_id}", product_data
-        )
-
-    def get_product(self, session, product_id):
-        return await self._send_request(session, "GET", f"products/{product_id}")
-
-    def get_all_product_ids(self, session):
-        response = await self._send_request(session, "GET", "products")
-        product_ids = []
-        try:
-            root = ET.fromstring(response)
-            products = root.findall(".//product")
-            if products:
-                product_ids = [
-                    product.find("id").text
-                    for product in products
-                    if product.find("id") is not None
-                ]
-            else:
-                print("No products found in the XML response.")
-        except ET.ParseError as e:
-            print(f"Error parsing XML: {e}")
-        except Exception as e:
-            print(f"Error parsing product IDs: {e}")
-        return product_ids
-
-    def get_all_category_ids(self, session):
-        response = await self._send_request(session, "GET", "categories")
-        print("Categories Response:", response)  # Add this line
+    def get_all_category_ids(self):
+        response = self._send_request("GET", "categories")
+        print(f"Categories Response: {response}")
         category_ids = []
         try:
             root = ET.fromstring(response)
             categories = root.findall(".//category")
-            if categories:
-                category_ids = [
-                    category.find("id").text
-                    for category in categories
-                    if category.find("id") is not None
-                ]
-            else:
-                print("No categories found in the XML response.")
+            category_ids = [category.get("id") for category in categories]
         except ET.ParseError as e:
             print(f"Error parsing XML: {e}")
         except Exception as e:
             print(f"Error parsing category IDs: {e}")
         return category_ids
 
-    def get_all_manufacturer_ids(self, session):
-        response = await self._send_request(session, "GET", "manufacturers")
+    def get_all_manufacturer_ids(self):
+        response = self._send_request("GET", "manufacturers")
+        print(f"Manufacturers Response: {response}")
         manufacturer_ids = []
         try:
             root = ET.fromstring(response)
             manufacturers = root.findall(".//manufacturer")
-            if manufacturers:
-                manufacturer_ids = [
-                    manufacturer.find("id").text
-                    for manufacturer in manufacturers
-                    if manufacturer.find("id") is not None
-                ]
-            else:
-                print("No manufacturers found in the XML response.")
+            manufacturer_ids = [
+                manufacturer.get("id") for manufacturer in manufacturers
+            ]
         except ET.ParseError as e:
             print(f"Error parsing XML: {e}")
         except Exception as e:
             print(f"Error parsing manufacturer IDs: {e}")
         return manufacturer_ids
 
-    def delete_product(self, session, product_id):
-        return await self._send_request(session, "DELETE", f"products/{product_id}")
+    def get_all_supplier_ids(self):
+        response = self._send_request("GET", "suppliers")
+        print(f"Suppliers Response: {response}")
+        supplier_ids = []
+        try:
+            root = ET.fromstring(response)
+            suppliers = root.findall(".//supplier")
+            supplier_ids = [supplier.get("id") for supplier in suppliers]
+        except ET.ParseError as e:
+            print(f"Error parsing XML: {e}")
+        except Exception as e:
+            print(f"Error parsing supplier IDs: {e}")
+        return supplier_ids
 
-    def delete_category(self, session, category_id):
-        return await self._send_request(session, "DELETE", f"categories/{category_id}")
+    def get_all_shop_ids(self):
+        response = self._send_request("GET", "shops")
+        print(f"Shops Response: {response}")
+        shop_ids = []
+        try:
+            root = ET.fromstring(response)
+            shops = root.findall(".//shop")
+            shop_ids = [shop.get("id") for shop in shops]
+        except ET.ParseError as e:
+            print(f"Error parsing XML: {e}")
+        except Exception as e:
+            print(f"Error parsing shop IDs: {e}")
+        return shop_ids
 
-    def delete_manufacturer(self, session, manufacturer_id):
-        return await self._send_request(
-            session, "DELETE", f"manufacturers/{manufacturer_id}"
-        )
+    def get_all_product_ids(self):
+        response = self._send_request("GET", "products")
+        print(f"Products Response: {response}")
+        product_ids = []
+        try:
+            root = ET.fromstring(response)
+            products = root.findall(".//product")
+            product_ids = [product.get("id") for product in products]
+        except ET.ParseError as e:
+            print(f"Error parsing XML: {e}")
+        except Exception as e:
+            print(f"Error parsing product IDs: {e}")
+        return product_ids
+
+    def delete_category(self, category_id):
+        return self._send_request("DELETE", f"categories/{category_id}")
+
+    def delete_manufacturer(self, manufacturer_id):
+        return self._send_request("DELETE", f"manufacturers/{manufacturer_id}")
+
+    def delete_supplier(self, supplier_id):
+        return self._send_request("DELETE", f"suppliers/{supplier_id}")
+
+    def delete_shop(self, shop_id):
+        return self._send_request("DELETE", f"shops/{shop_id}")
+
+    def delete_product(self, product_id):
+        return self._send_request("DELETE", f"products/{product_id}")
 
 
 def remove_all_categories():
@@ -115,63 +115,22 @@ def remove_all_categories():
     settings = frappe.get_single("Generalne Postavke")
     api = PrestaShopAPI(settings.presta_url, settings.presta_key)
 
-    with aiohttp.ClientSession() as session:
-        category_ids = await api.get_all_category_ids(session)
-        print(f"All Category IDs: {category_ids}")  # Log all category IDs
+    category_ids = api.get_all_category_ids()
+    print(f"All Category IDs: {category_ids}")
 
-        if not category_ids:
-            print("No categories found to delete")
-            return
+    if not category_ids:
+        print("No categories found to delete")
+        return
 
-        # Protected categories (root and default)
-        protected_category_ids = {"1", "2"}
-        category_ids = [
-            cid for cid in category_ids if cid not in protected_category_ids
-        ]
+    protected_category_ids = {"1", "2"}  # Protect root and default categories
+    category_ids = [cid for cid in category_ids if cid not in protected_category_ids]
 
-        if not category_ids:
-            print("No categories found to delete after excluding protected ones")
-            return
-
-        progress = tqdm(total=len(category_ids), desc="Deleting categories")
-        delete_tasks = [
-            api.delete_category(session, category_id) for category_id in category_ids
-        ]
-        responses = await asyncio.gather(*delete_tasks)
-
-        for response in responses:
-            progress.update(1)
-        progress.close()
-        print("All eligible categories have been removed from PrestaShop")
-
-
-def remove_all_categories():
-    print("Starting removal of all categories")
-    settings = frappe.get_single("Generalne Postavke")
-    api = PrestaShopAPI(settings.presta_url, settings.presta_key)
-
-    with aiohttp.ClientSession() as session:
-        category_ids = await api.get_all_category_ids(session)
-        if not category_ids:
-            print("No categories found to delete")
-            return
-
-        # Protecting root categories and default categories
-        protected_category_ids = {"1", "2"}  # Update with the correct IDs if necessary
-        category_ids = [
-            cid for cid in category_ids if cid not in protected_category_ids
-        ]
-
-        progress = tqdm(total=len(category_ids), desc="Deleting categories")
-        delete_tasks = [
-            api.delete_category(session, category_id) for category_id in category_ids
-        ]
-        responses = await asyncio.gather(*delete_tasks)
-
-        for response in responses:
-            progress.update(1)
-        progress.close()
-        print("All non-protected categories have been removed from PrestaShop")
+    progress = tqdm(total=len(category_ids), desc="Deleting categories")
+    for category_id in category_ids:
+        api.delete_category(category_id)
+        progress.update(1)
+    progress.close()
+    print("All eligible categories have been removed from PrestaShop")
 
 
 def remove_all_manufacturers():
@@ -179,45 +138,83 @@ def remove_all_manufacturers():
     settings = frappe.get_single("Generalne Postavke")
     api = PrestaShopAPI(settings.presta_url, settings.presta_key)
 
-    with aiohttp.ClientSession() as session:
-        manufacturer_ids = await api.get_all_manufacturer_ids(session)
-        if not manufacturer_ids:
-            print("No manufacturers found to delete")
-            return
+    manufacturer_ids = api.get_all_manufacturer_ids()
+    print(f"All Manufacturer IDs: {manufacturer_ids}")
 
-        progress = tqdm(total=len(manufacturer_ids), desc="Deleting manufacturers")
-        delete_tasks = [
-            api.delete_manufacturer(session, manufacturer_id)
-            for manufacturer_id in manufacturer_ids
-        ]
-        responses = await asyncio.gather(*delete_tasks)
+    if not manufacturer_ids:
+        print("No manufacturers found to delete")
+        return
 
-        for response in responses:
-            progress.update(1)
-        progress.close()
-        print("All manufacturers have been removed from PrestaShop")
+    progress = tqdm(total=len(manufacturer_ids), desc="Deleting manufacturers")
+    for manufacturer_id in manufacturer_ids:
+        api.delete_manufacturer(manufacturer_id)
+        progress.update(1)
+    progress.close()
+    print("All manufacturers have been removed from PrestaShop")
 
 
-def clear_proizvodi_fields():
-    frappe.db.sql(
-        """
-        UPDATE `tabProizvodi`
-        SET id_presta_manufacturer = NULL,
-            id_presta_category = NULL,
-            presta_stock_id = NULL,
-            presta_product_id = NULL
-    """
-    )
-    frappe.db.commit()
-    print("Cleared fields in Proizvodi")
+def remove_all_suppliers():
+    print("Starting removal of all suppliers")
+    settings = frappe.get_single("Generalne Postavke")
+    api = PrestaShopAPI(settings.presta_url, settings.presta_key)
+
+    supplier_ids = api.get_all_supplier_ids()
+    print(f"All Supplier IDs: {supplier_ids}")
+
+    if not supplier_ids:
+        print("No suppliers found to delete")
+        return
+
+    progress = tqdm(total=len(supplier_ids), desc="Deleting suppliers")
+    for supplier_id in supplier_ids:
+        api.delete_supplier(supplier_id)
+        progress.update(1)
+    progress.close()
+    print("All suppliers have been removed from PrestaShop")
+
+
+def remove_all_shops():
+    print("Starting removal of all shops")
+    settings = frappe.get_single("Generalne Postavke")
+    api = PrestaShopAPI(settings.presta_url, settings.presta_key)
+
+    shop_ids = api.get_all_shop_ids()
+    print(f"All Shop IDs: {shop_ids}")
+
+    if not shop_ids:
+        print("No shops found to delete")
+        return
+
+    progress = tqdm(total=len(shop_ids), desc="Deleting shops")
+    for shop_id in shop_ids:
+        api.delete_shop(shop_id)
+        progress.update(1)
+    progress.close()
+    print("All shops have been removed from PrestaShop")
+
+
+def remove_all_products():
+    print("Starting removal of all products")
+    settings = frappe.get_single("Generalne Postavke")
+    api = PrestaShopAPI(settings.presta_url, settings.presta_key)
+
+    product_ids = api.get_all_product_ids()
+    print(f"All Product IDs: {product_ids}")
+
+    if not product_ids:
+        print("No products found to delete")
+        return
+
+    progress = tqdm(total=len(product_ids), desc="Deleting products")
+    for product_id in product_ids:
+        api.delete_product(product_id)
+        progress.update(1)
+    progress.close()
+    print("All products have been removed from PrestaShop")
 
 
 def run_remove_all():
     remove_all_categories()
     remove_all_manufacturers()
-    # remove_all_products()
-    # clear_proizvodi_fields()
+    remove_all_products()
     return {"status": "Completed"}
-
-
-
