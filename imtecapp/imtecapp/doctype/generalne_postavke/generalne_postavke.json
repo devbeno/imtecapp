@@ -13,6 +13,7 @@
   "category_default_id",
   "shop_default_id",
   "first_time_insert",
+  "last_sync_time",
   "api_linkovi",
   "api_erp_linkovi",
   "api_artikli",
@@ -138,12 +139,17 @@
    "fieldname": "first_time_insert",
    "fieldtype": "Check",
    "label": "first_time_insert"
+  },
+  {
+   "fieldname": "last_sync_time",
+   "fieldtype": "Datetime",
+   "label": "last_sync_time"
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2024-08-14 06:13:41.561765",
+ "modified": "2024-08-15 06:06:26.732816",
  "modified_by": "Administrator",
  "module": "ImtecApp",
  "name": "Generalne Postavke",

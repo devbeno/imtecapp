@@ -14,12 +14,14 @@ app_license = "mit"
 #        "imtecapp.sync_proizvodi"
 #    ]
 # }
-scheduler_events = {
-    "daily": [
-        "imtecapp.imtecapp.doctype.proizvodi.eline.sync_proizvodi.update_proizvodi"
-    ]
-}
-
+# scheduler_events = {
+#     "daily": [
+#         "imtecapp.imtecapp.doctype.proizvodi.eline.sync_proizvodi.update_proizvodi"
+#     ]
+# }
+# website_route_rules = [
+#     {"from_route": "/presta_sync", "to_route": "presta_sync"}
+# ]
 # include js, css files in header of desk.html
 # app_include_css = "/assets/imtecapp/css/imtecapp.css"
 # app_include_js = "/assets/imtecapp/js/imtecapp.js"

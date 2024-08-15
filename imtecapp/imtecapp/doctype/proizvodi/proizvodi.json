@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2024-08-13 21:59:58.780507",
+ "creation": "2024-08-15 02:07:22.736228",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -15,7 +15,11 @@
   "kataloski",
   "grupanaziv",
   "proizvodjac",
-  "hash"
+  "hash",
+  "status",
+  "prestashop_manufacturer_id",
+  "prestashop_category_id",
+  "prestashop_id"
  ],
  "fields": [
   {
@@ -83,11 +87,35 @@
    "fieldtype": "Data",
    "label": "Hash",
    "length": 32
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "\nfor_insert\nfor_update\non_presta"
+  },
+  {
+   "description": "External ID",
+   "fieldname": "prestashop_manufacturer_id",
+   "fieldtype": "Data",
+   "label": "PrestaShop Manufacturer ID"
+  },
+  {
+   "description": "External ID",
+   "fieldname": "prestashop_category_id",
+   "fieldtype": "Data",
+   "label": "PrestaShop Category ID"
+  },
+  {
+   "description": "External ID",
+   "fieldname": "prestashop_id",
+   "fieldtype": "Data",
+   "label": "PrestaShop ID"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-08-14 02:45:19.367014",
+ "modified": "2024-08-15 13:22:01.247435",
  "modified_by": "Administrator",
  "module": "ImtecApp",
  "name": "Proizvodi",
