@@ -368,13 +368,13 @@ def insert_data_from_json(json_path, assume_insert=True):
 def clear_and_update_status():
     # Clear the 'status' field for all records in 'Proizvodi'
     # frappe.db.sql("UPDATE `tabProizvodi` SET status = ''")
-    frappe.db.sql(
-        """
-        UPDATE `tabProizvodi`
-        SET status = ''
-        WHERE status != 'on_presta'
-    """
-    )
+    # frappe.db.sql(
+    #     """
+    #     UPDATE `tabProizvodi`
+    #     SET status = ''
+    #     WHERE status != 'on_presta'
+    # """
+    # )
     # Load the for_insert_eline_data.json file
     directory_path = frappe.get_module_path("imtecapp", "data")
     for_insert_json_path = os.path.join(directory_path, "for_insert_eline_data.json")

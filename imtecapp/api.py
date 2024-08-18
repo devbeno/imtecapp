@@ -94,6 +94,25 @@ def sync_manufacturers():
         frappe.throw(_("Failed to sync manufacturers: {0}").format(str(e)))
 
 
+def fetch_categories_from_api():
+    """Fetch categories from the external API."""
+    try:
+        url = "https://staging.imtec.ba/api/method/imtecapp.api.test_prestashop_names"
+        response = make_get_request(url)
+
+        if response.get("message") and response["message"].get("cleaned_names"):
+            categories = response["message"]["cleaned_names"]["grupanaziv"]
+            return categories
+        else:
+            frappe.logger().error(
+                "Failed to fetch categories: Unexpected response format."
+            )
+            return []
+    except Exception as e:
+        frappe.logger().error(f"Error fetching categories from API: {str(e)}")
+        return []
+
+
 def insert_categories_into_prestashop(categories, settings):
     prestashop_url = f"{settings['presta_url']}/categories"
     headers = {"Content-Type": "application/xml"}
@@ -701,3 +720,28 @@ def update_prestashop_products(products, settings):
 
         except Exception as e:
             frappe.logger().error(f"General error updating product {product}: {str(e)}")
+
+
+
+
+@frappe.whitelist()
+def filter_and_sort_proizvodi_by_grupanaziv():
+    """Filter and sort Proizvodi by Grupanaziv, ensuring no duplicates."""
+    try:
+        # Query to get distinct Grupanaziv values
+        query = """
+            SELECT DISTINCT(grupanaziv)
+            FROM `tabProizvodi`
+            WHERE grupanaziv IS NOT NULL
+            ORDER BY grupanaziv ASC
+        """
+        results = frappe.db.sql(query, as_dict=True)
+
+        # Extract the unique Grupanaziv values
+        filtered_grupanaziv = [row["grupanaziv"] for row in results]
+
+        return filtered_grupanaziv
+
+    except Exception as e:
+        frappe.logger().error(f"Error in filtering Proizvodi by Grupanaziv: {str(e)}")
+        return []

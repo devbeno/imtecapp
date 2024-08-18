@@ -9,6 +9,7 @@ import frappe
 import json
 import base64
 import xml.etree.ElementTree as ET
+import os
 
 
 def get_prestashop_settings():
@@ -245,3 +246,124 @@ def sync_data(json_file_path):
     except Exception as e:
         frappe.logger().error(f"Error syncing data: {str(e)}")
         return {"status": "error", "message": f"Failed to sync data: {str(e)}"}
+
+
+def generate_products_json():
+    """Generate JSON output for active products (aktivan = 1) in the Proizvodi doctype."""
+    try:
+        # Fetch active products
+        active_products = frappe.get_all(
+            "Proizvodi",
+            filters={"aktivan": 1},
+            fields=[
+                "art_sifra",
+                "art_naziv as name",
+                "prestashop_category_id",
+                "prestashop_manufacturer_id",
+                "vpc",
+                "aktivan",
+                "stanje",
+            ],
+        )
+
+        # Prepare the JSON structure
+        products_list = []
+        stocks_list = []
+
+        for product in active_products:
+            # Prepare product entry
+            product_entry = {
+                "art_sifra": product["art_sifra"],
+                "name": product["name"],
+                "prestashop_category_id": product["prestashop_category_id"],
+                "prestashop_manufacturer_id": product["prestashop_manufacturer_id"],
+                "vpc": product["vpc"],
+                "aktivan": product["aktivan"],
+                "stanje": product["stanje"],
+                "status": "for_insert",
+            }
+            products_list.append(product_entry)
+
+            # Prepare stock entry
+            stock_entry = {
+                "art_sifra": product["art_sifra"],
+                "stanje": product["stanje"],
+                "status": "for_stock",
+            }
+            stocks_list.append(stock_entry)
+
+        # Combine the products and stocks into the final JSON structure
+        output_json = {"products": products_list, "stocks": stocks_list}
+
+        # Return or print the JSON output (you can modify this to save to a file if needed)
+        return output_json
+
+    except Exception as e:
+        frappe.logger().error(f"Error generating products JSON: {str(e)}")
+        return {"status": "error", "message": f"Failed to generate JSON: {str(e)}"}
+
+
+def generate_products_json():
+    """Generate JSON output for active products (aktivan = 1) in the Proizvodi doctype and save to file."""
+    try:
+        # Fetch active products
+        active_products = frappe.get_all(
+            "Proizvodi",
+            filters={"aktivan": 1},
+            fields=[
+                "art_sifra",
+                "art_naziv as name",
+                "prestashop_category_id",
+                "prestashop_manufacturer_id",
+                "vpc",
+                "aktivan",
+                "stanje",
+            ],
+        )
+
+        # Prepare the JSON structure
+        products_list = []
+        stocks_list = []
+
+        for product in active_products:
+            # Prepare product entry
+            product_entry = {
+                "art_sifra": product["art_sifra"],
+                "name": product["name"],
+                "prestashop_category_id": product["prestashop_category_id"],
+                "prestashop_manufacturer_id": product["prestashop_manufacturer_id"],
+                "vpc": product["vpc"],
+                "aktivan": product["aktivan"],
+                "stanje": product["stanje"],
+                "status": "for_insert",
+            }
+            products_list.append(product_entry)
+
+            # Prepare stock entry
+            stock_entry = {
+                "art_sifra": product["art_sifra"],
+                "stanje": product["stanje"],
+                "status": "for_stock",
+            }
+            stocks_list.append(stock_entry)
+
+        # Combine the products and stocks into the final JSON structure
+        output_json = {"products": products_list, "stocks": stocks_list}
+
+        # Save the JSON output to a file
+        directory_path = frappe.get_module_path("imtecapp", "data")
+        presta_products_path = os.path.join(directory_path, "presta_products.json")
+
+        with open(presta_products_path, "w") as json_file:
+            json.dump(output_json, json_file, indent=4)
+
+        print(f"JSON output saved to {presta_products_path}")
+
+        return {
+            "status": "success",
+            "message": f"JSON output saved to {presta_products_path}",
+        }
+
+    except Exception as e:
+        frappe.logger().error(f"Error generating products JSON: {str(e)}")
+        return {"status": "error", "message": f"Failed to generate JSON: {str(e)}"}

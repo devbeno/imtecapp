@@ -6,7 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
      "reference",
-     "name",
+     "product_name",
      "price",
      "active",
      "quantity",
@@ -18,6 +18,11 @@
      "sync_with_prestashop"
     ],
    "fields": [
+      {
+        "fieldname": "prestashop_id",
+        "fieldtype": "Data",
+        "label": "PrestaShop Product ID"
+      },
       {
         "fieldname": "presta_product_id",
         "fieldtype": "Data",

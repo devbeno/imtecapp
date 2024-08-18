@@ -1,60 +1,29 @@
-# Copyright (c) 2024, Imtec and contributors
-# For license information, please see license.txt
-
 import frappe
-from frappe.model.document import Document
-import requests
-from frappe import _
-import base64
+import json
+import os
 from prestapyt import PrestaShopWebServiceDict
 
 
-class Proizvodi(Document):
-    pass
+def get_prestashop_settings():
+    """Retrieve PrestaShop API settings from the Frappe database."""
+    settings = frappe.get_single("Generalne Postavke")
+    return {
+        "presta_url": settings.presta_url.rstrip("/"),
+        "presta_key": settings.presta_key,
+    }
 
 
-@frappe.whitelist()
-def sync_products_to_prestashop(docnames=None):
-    if docnames:
-        # Fetch only the selected products
-        proizvodi = frappe.get_all(
-            "Proizvodi", fields=["*"], filters={"aktivan": 1, "name": ["in", docnames]}
-        )
-    else:
-        # Fetch all products if no docnames are provided
-        proizvodi = frappe.get_all("Proizvodi", fields=["*"], filters={"aktivan": 1})
+def sync_prestashop_from_json():
+    """Sync products and stocks with PrestaShop using JSON data."""
+    directory_path = frappe.get_module_path("imtecapp", "data")
+    presta_products_path = os.path.join(directory_path, "presta_products.json")
 
-    # Prepare the data structure
-    products = []
-    stocks = []
+    # Load JSON data from file
+    with open(presta_products_path, "r") as f:
+        json_data = json.load(f)
 
-    for product in proizvodi:
-        product_data = {
-            "art_sifra": product.art_sifra,
-            "name": product.art_naziv,
-            "prestashop_category_id": product.prestashop_category_id,
-            "prestashop_manufacturer_id": product.prestashop_manufacturer_id,
-            "vpc": product.vpc,
-            "aktivan": product.aktivan,
-            "stanje": product.stanje,
-            "status": product.status,
-        }
-        products.append(product_data)
-
-        # Prepare stock data only if there's stock information
-        if product.stanje is not None:
-            stock_data = {
-                "art_sifra": product.art_sifra,
-                "stanje": product.stanje,
-                "status": "for_stock",
-            }
-            stocks.append(stock_data)
-
-    # Combine products and stocks into the expected structure
-    data = {"products": products, "stocks": stocks}
-
-    # Use the existing function to sync this data with PrestaShop
-    sync_products_and_stocks_from_json(data)
+    # Proceed with syncing using the loaded JSON data
+    sync_products_and_stocks_from_json(json_data)
 
 
 def sync_products_and_stocks_from_json(json_data):
@@ -76,22 +45,13 @@ def sync_products_and_stocks_from_json(json_data):
         process_stock(prestashop, stock)
 
 
-def get_prestashop_settings():
-    """Retrieve PrestaShop API settings from the Frappe database."""
-    settings = frappe.get_single("Generalne Postavke")
-    return {
-        "presta_url": settings.presta_url.rstrip("/"),
-        "presta_key": settings.presta_key,
-    }
-
-
 def process_product(prestashop, product):
     """Process individual product from JSON."""
     try:
         product_code = product["art_sifra"]
         product_name = product["name"]
-        category_id = product["prestashop_category_id"]
-        manufacturer_id = product["prestashop_manufacturer_id"]
+        category_id = product["prestashop_cat_id"]
+        manufacturer_id = product["prestashop_man_id"]
         price = product.get("vpc", 0)
         active = product.get("aktivan", 1)
         stock = product.get("stanje", 0)
@@ -99,17 +59,17 @@ def process_product(prestashop, product):
 
         if status == "for_insert":
             # Insert new product
-            prestashop_id = create_prestashop_product(prestashop, product)
-            if prestashop_id:
-                update_frappe_with_prestashop_id(product_code, prestashop_id)
+            prestashop_pro_id = create_prestashop_product(prestashop, product)
+            if prestashop_pro_id:
+                update_frappe_with_prestashop_id(product_code, prestashop_pro_id)
         elif status == "for_update":
             # Update existing product
             existing_product = get_prestashop_product_by_reference(
                 prestashop, product_code
             )
             if existing_product:
-                prestashop_id = existing_product["id"]
-                update_prestashop_product(prestashop, prestashop_id, product)
+                prestashop_pro_id = existing_product["id"]
+                update_prestashop_product(prestashop, prestashop_pro_id, product)
 
     except Exception as e:
         frappe.logger().error(f"Error processing product {product_code}: {str(e)}")
@@ -140,16 +100,16 @@ def process_stock(prestashop, stock):
         print(f"Error processing stock for product {product_code}: {str(e)}")
 
 
-def update_frappe_with_prestashop_id(product_code, prestashop_id):
+def update_frappe_with_prestashop_id(product_code, prestashop_pro_id):
     """Update Frappe database with the PrestaShop product ID."""
     try:
         frappe.db.sql(
             """
             UPDATE `tabProizvodi`
-            SET prestashop_id = %s
+            SET prestashop_pro_id = %s
             WHERE art_sifra = %s
             """,
-            (prestashop_id, product_code),
+            (prestashop_pro_id, product_code),
         )
         frappe.db.commit()
         print(f"Updated Frappe with PrestaShop product ID for {product_code}")
@@ -163,23 +123,12 @@ def update_frappe_with_prestashop_id(product_code, prestashop_id):
 def get_prestashop_product_by_reference(prestashop, reference):
     """Check if a product exists in PrestaShop by reference."""
     try:
-        if not reference:
-            frappe.logger().error("Product reference is empty. Cannot fetch product.")
-            return None
-
         products = prestashop.get(
             "products", options={"filter[reference]": reference, "display": "full"}
         )
-
-        # Check if products were returned
-        if products and "products" in products and len(products["products"]) > 0:
+        if products and "products" in products:
             return products["products"][0]
-        else:
-            frappe.logger().error(
-                f"No products found in PrestaShop with reference: {reference}"
-            )
-            return None
-
+        return None
     except Exception as e:
         frappe.logger().error(
             f"Error fetching product by reference from PrestaShop: {str(e)}"
@@ -194,14 +143,12 @@ def create_prestashop_product(prestashop, product):
             "product": {
                 "name": {"language": {"attrs": {"id": "2"}, "value": product["name"]}},
                 "price": product.get("vpc", 0),
-                "id_category_default": product["prestashop_category_id"],
-                "id_manufacturer": product["prestashop_manufacturer_id"],
+                "id_category_default": product["prestashop_cat_id"],
+                "id_manufacturer": product["prestashop_man_id"],
                 "active": product.get("aktivan", 1),
                 "reference": product["art_sifra"],
                 "associations": {
-                    "categories": {
-                        "category": [{"id": product["prestashop_category_id"]}]
-                    }
+                    "categories": {"category": [{"id": product["prestashop_cat_id"]}]}
                 },
             }
         }
@@ -221,14 +168,12 @@ def update_prestashop_product(prestashop, product_id, product):
                 "id": product_id,
                 "name": {"language": {"attrs": {"id": "2"}, "value": product["name"]}},
                 "price": product.get("vpc", 0),
-                "id_category_default": product["prestashop_category_id"],
-                "id_manufacturer": product["prestashop_manufacturer_id"],
+                "id_category_default": product["prestashop_cat_id"],
+                "id_manufacturer": product["prestashop_man_id"],
                 "active": product.get("aktivan", 1),
                 "reference": product["art_sifra"],
                 "associations": {
-                    "categories": {
-                        "category": [{"id": product["prestashop_category_id"]}]
-                    }
+                    "categories": {"category": [{"id": product["prestashop_cat_id"]}]}
                 },
             }
         }
@@ -255,3 +200,7 @@ def update_prestashop_stock(prestashop, stock_id, quantity):
     except Exception as e:
         frappe.logger().error(f"Error updating stock in PrestaShop: {str(e)}")
         return None
+
+
+# Example usage:
+sync_prestashop_from_json()

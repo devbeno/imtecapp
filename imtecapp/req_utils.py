@@ -20,7 +20,16 @@ def make_request(
         )
         response.raise_for_status()
 
-        # Check whether the response has a content-type, before trying to check what it is
+        # Log the response details for debugging
+        print(f"Request URL: {url}")
+        print(f"Request Method: {method}")
+        print(f"Request Headers: {headers}")
+        print(f"Request Data: {data}")
+        print(f"Response Status Code: {response.status_code}")
+        print(f"Response Headers: {response.headers}")
+        print(f"Response Content: {response.text}")
+
+        # Check content type and handle response accordingly
         if content_type := response.headers.get("content-type"):
             if content_type == "text/plain; charset=utf-8":
                 return parse_qs(response.text)
@@ -28,10 +37,15 @@ def make_request(
                 0
             ].endswith("json"):
                 return response.json()
+            elif content_type.startswith("application/") and content_type.split(";")[
+                0
+            ].endswith("xml"):
+                return response.text
             elif response.text:
                 return response.text
         return
     except Exception as exc:
+        print(f"Exception occurred: {exc}")
         if frappe.flags.integration_request_doc:
             frappe.flags.integration_request_doc.log_error()
         else:
