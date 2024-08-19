@@ -4,39 +4,9 @@ import base64
 import os
 import hashlib
 import json
-from datetime import datetime
+import shutil
 
 BATCH_SIZE = 1000
-
-
-def create_log(operation, art_sifra, hash_value, status, message):
-    log_entry = frappe.get_doc(
-        {
-            "doctype": "Data Logs",
-            "timestamp": datetime.now(),
-            "operation": operation,
-            "art_sifra": art_sifra,
-            "hash": hash_value,
-            "status": status,
-            "message": json.dumps({"status": status, **message}),
-        }
-    )
-    log_entry.insert(ignore_permissions=True)
-    frappe.db.commit()
-
-
-def create_batch_log(operation, status, message):
-    log_entry = frappe.get_doc(
-        {
-            "doctype": "Data Logs",
-            "timestamp": datetime.now(),
-            "operation": operation,
-            "status": status,
-            "message": json.dumps({"status": status, **message}),
-        }
-    )
-    log_entry.insert(ignore_permissions=True)
-    frappe.db.commit()
 
 
 def get_erpimtec_settings():
@@ -45,27 +15,14 @@ def get_erpimtec_settings():
 
 
 def get_headers(settings):
-    try:
-        username = settings.username_erpimtec
-        password = settings.get_password("password_erpimtec")
-        if not username or not password:
-            raise ValueError("USERNAME or PASSWORD environment variable is not set")
-
-        credentials = f"{username}:{password}"
-        encoded_credentials = base64.b64encode(credentials.encode()).decode()
-        return {
-            "Authorization": f"Basic {encoded_credentials}",
-            "Content-Type": "application/json",
-        }
-    except Exception as e:
-        create_log(
-            "Error",
-            None,
-            None,
-            "Failure",
-            {"detail": "API Request Failed", "error": str(e)},
-        )
-        frappe.throw(str(e))
+    username = settings.username_erpimtec
+    password = settings.get_password("password_erpimtec")
+    credentials = f"{username}:{password}"
+    encoded_credentials = base64.b64encode(credentials.encode()).decode()
+    return {
+        "Authorization": f"Basic {encoded_credentials}",
+        "Content-Type": "application/json",
+    }
 
 
 def get_api_url(api_name, settings):
@@ -76,67 +33,42 @@ def get_api_url(api_name, settings):
         "cijene": settings.api_cjenovnik,
         "cjenovnici": settings.api_cjenovnik_sa_stanjem,
     }
-    return api_field_map.get(api_name, None)
+    return api_field_map.get(api_name)
 
 
 def make_get_request(url, headers):
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.HTTPError as http_err:
-        create_log(
-            "Error",
-            None,
-            None,
-            "Failure",
-            {
-                "detail": "HTTP error occurred",
-                "status_code": response.status_code,
-                "response_text": response.text,
-                "error": str(http_err),
-            },
-        )
-        return {}
-    except Exception as err:
-        create_log(
-            "Error",
-            None,
-            None,
-            "Failure",
-            {"detail": "Other error occurred", "error": str(err)},
-        )
-        return {}
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    return response.json()
 
 
 def generate_item_hash(item):
-    try:
-        # Normalize the data
-        normalized_data = {
-            "art_sifra": item.get("art_sifra", "").strip().lower(),
-            "vpc": float(item.get("vpc", 0)),
-            "aktivan": bool(item.get("aktivan", 0)),
-            "stanje": int(item.get("stanje", 0)),
-            "art_naziv": item.get("art_naziv", "").strip().lower(),
-            "kataloski": item.get("kataloski", "").strip().lower(),
-            "grupanaziv": item.get("grupanaziv", "").strip().lower(),
-            "proizvodjac": item.get("proizvodjac", "").strip().lower(),
-        }
-        # Serialize to JSON and hash
-        hash_input = json.dumps(normalized_data, sort_keys=True)
-        return hashlib.md5(hash_input.encode()).hexdigest()
-    except KeyError as e:
-        create_log(
-            "Error",
-            item.get("art_sifra", None),
-            None,
-            "Failure",
-            {"detail": "Missing field during hash generation", "error": str(e)},
-        )
-        return None
+    normalized_data = {
+        "art_sifra": item.get("art_sifra", "").strip().lower(),
+        "vpc": float(item.get("vpc", 0)),
+        "aktivan": bool(item.get("aktivan", 0)),
+        "stanje": int(item.get("stanje", 0)),
+        "art_naziv": item.get("art_naziv", "").strip().lower(),
+        "kataloski": item.get("kataloski", "").strip().lower(),
+        "grupanaziv": item.get("grupanaziv", "").strip().lower(),
+        "proizvodjac": item.get("proizvodjac", "").strip().lower(),
+    }
+    hash_input = json.dumps(normalized_data, sort_keys=True)
+    return hashlib.md5(hash_input.encode()).hexdigest()
 
 
-def fetch_and_combine_data():
+def save_to_json(data, filename):
+    directory_path = frappe.get_module_path("imtecapp", "data")
+    if not os.path.exists(directory_path):
+        os.makedirs(directory_path)
+
+    json_path = os.path.join(directory_path, filename)
+
+    with open(json_path, mode="w") as file:
+        json.dump(data, file, indent=4)
+
+
+def fetch_and_combine_data(filename):
     combined_data = []
     api_names = ["artikli", "partneri", "grupe", "cijene", "cjenovnici"]
     settings = get_erpimtec_settings()
@@ -145,8 +77,6 @@ def fetch_and_combine_data():
     data_store = {}
     for api_name in api_names:
         url = get_api_url(api_name, settings)
-        if not url:
-            frappe.throw(f"Invalid API name: {api_name}")
         if api_name in ["cijene", "cjenovnici"]:
             headers["KorisnikX"] = settings.username_erpimtec
         response_data = make_get_request(url, headers)
@@ -218,27 +148,7 @@ def fetch_and_combine_data():
         }
         combined_data.append(combined_entry)
 
-    return combined_data
-
-
-def save_to_json(data, filename):
-    directory_path = frappe.get_module_path("imtecapp", "data")
-    if not os.path.exists(directory_path):
-        os.makedirs(directory_path)
-
-    json_path = os.path.join(directory_path, filename)
-
-    with open(json_path, mode="w") as file:
-        json.dump(data, file, indent=4)
-
-
-def ensure_current_json_exists():
-    directory_path = frappe.get_module_path("imtecapp", "data")
-    current_json_path = os.path.join(directory_path, "current_eline_data.json")
-
-    if not os.path.exists(current_json_path):
-        combined_data = fetch_and_combine_data()
-        save_to_json(combined_data, "current_eline_data.json")
+    save_to_json(combined_data, filename)
 
 
 def compare_and_create_for_insert_json():
@@ -246,12 +156,22 @@ def compare_and_create_for_insert_json():
     current_json_path = os.path.join(directory_path, "current_eline_data.json")
     new_json_path = os.path.join(directory_path, "new_eline_data.json")
 
+    # Ensure current_eline_data.json exists
+    if not os.path.exists(current_json_path):
+        raise FileNotFoundError(f"No such file or directory: {current_json_path}")
+
+    # Load current data
     with open(current_json_path, mode="r") as current_file:
         current_data = json.load(current_file)
 
+    # Fetch new data and generate new_eline_data.json
+    fetch_and_combine_data(new_json_path)
+
+    # Load new data
     with open(new_json_path, mode="r") as new_file:
         new_data = json.load(new_file)
 
+    # Create a mapping of art_sifra to the current data entries
     current_data_map = {item["art_sifra"]: item for item in current_data}
 
     for_insert_data = []
@@ -265,79 +185,62 @@ def compare_and_create_for_insert_json():
             current_hash = current_item["hash"]
 
             if new_hash != current_hash:
+                # If the hashes differ, mark the item for update
                 new_item["status"] = "for_update"
                 for_insert_data.append(new_item)
         else:
+            # If the item doesn't exist in current data, mark it for insert
             new_item["status"] = "for_insert"
             for_insert_data.append(new_item)
 
+    # Save the resulting list of items to for_insert_eline_data.json
     save_to_json(for_insert_data, "for_insert_eline_data.json")
 
+    # After processing, move new_eline_data.json to current_eline_data.json
+    shutil.move(new_json_path, current_json_path)
 
-def update_proizvodi():
-    ensure_current_json_exists()
-    combined_data = fetch_and_combine_data()
-    save_to_json(combined_data, "new_eline_data.json")
-    compare_and_create_for_insert_json()
 
-    # Copy the new_eline_data.json to current_eline_data.json instead of replacing it
+def insert_data_from_for_insert_eline_data():
+    directory_path = frappe.get_module_path("imtecapp", "data")
+    for_insert_json_path = os.path.join(directory_path, "for_insert_eline_data.json")
+
+    # Load the data from for_insert_eline_data.json
+    with open(for_insert_json_path, mode="r") as file:
+        data = json.load(file)
+
+    for item in data:
+        art_sifra = item["art_sifra"]
+        # Directly update the record in Proizvodi based on art_sifra
+        frappe.db.set_value("Proizvodi", {"art_sifra": art_sifra}, item)
+
+    # Commit the changes to the database
+    frappe.db.commit()
+
+
+def insert_data_from_current_eline_data():
     directory_path = frappe.get_module_path("imtecapp", "data")
     current_json_path = os.path.join(directory_path, "current_eline_data.json")
-    new_json_path = os.path.join(directory_path, "new_eline_data.json")
 
-    # Copy the contents of new_eline_data.json to current_eline_data.json
-    with open(new_json_path, "r") as new_file:
-        new_data = new_file.read()
-
-    with open(current_json_path, "w") as current_file:
-        current_file.write(new_data)
-
-
-def manual_proizvodi():
-    ensure_current_json_exists()
-
-    # Just compare the existing new_eline_data.json with current_eline_data.json
-    compare_and_create_for_insert_json()
-
-    # Copy the new_eline_data.json to current_eline_data.json instead of replacing it
-    directory_path = frappe.get_module_path("imtecapp", "data")
-    current_json_path = os.path.join(directory_path, "current_eline_data.json")
-    new_json_path = os.path.join(directory_path, "new_eline_data.json")
-
-    # Copy the contents of new_eline_data.json to current_eline_data.json
-    with open(new_json_path, "r") as new_file:
-        new_data = new_file.read()
-
-    with open(current_json_path, "w") as current_file:
-        current_file.write(new_data)
-
-
-def insert_data_from_json(json_path, assume_insert=True):
-    with open(json_path, mode="r") as file:
-        combined_data = json.load(file)
+    # Load the data from current_eline_data.json
+    with open(current_json_path, mode="r") as file:
+        data = json.load(file)
 
     to_insert = []
-    to_update = []
 
-    for item in combined_data:
+    for item in data:  # Since data is a list of products
         art_sifra = item["art_sifra"]
-        status = item.pop("status", "for_insert" if assume_insert else "for_update")
 
+        # Check if the record already exists in Proizvodi
         existing_doc_name = frappe.db.exists("Proizvodi", {"art_sifra": art_sifra})
 
-        if existing_doc_name:
-            if status == "for_update":
-                item["status"] = status  # Ensure status field is updated
-                to_update.append(item)
-        else:
-            if status == "for_insert":
-                item["name"] = frappe.generate_hash(length=10)
-                item["status"] = status
-                to_insert.append(item)
+        if not existing_doc_name:
+            # If it doesn't exist, prepare it for insertion
+            item["name"] = frappe.generate_hash(
+                length=10
+            )  # Generate a unique name for the new document
+            to_insert.append(item)
 
-    inserted_items = []
-    updated_items = []
-
+    # Insert new records in batches
     if to_insert:
         for i in range(0, len(to_insert), BATCH_SIZE):
             batch_to_insert = to_insert[i : i + BATCH_SIZE]
@@ -346,84 +249,6 @@ def insert_data_from_json(json_path, assume_insert=True):
                 fields=list(batch_to_insert[0].keys()),
                 values=[list(d.values()) for d in batch_to_insert],
             )
-            inserted_items.extend([item["art_sifra"] for item in batch_to_insert])
 
-    if to_update:
-        for item in to_update:
-            frappe.db.set_value("Proizvodi", {"art_sifra": item["art_sifra"]}, item)
-            updated_items.append(item["art_sifra"])
-
-    if inserted_items:
-        create_batch_log(
-            "Insert", "for_insert", {"message": f"Inserted items: {inserted_items}"}
-        )
-    if updated_items:
-        create_batch_log(
-            "Update", "for_update", {"message": f"Updated items: {updated_items}"}
-        )
-
+    # Commit the changes to the database
     frappe.db.commit()
-
-
-def clear_and_update_status():
-    # Clear the 'status' field for all records in 'Proizvodi'
-    # frappe.db.sql("UPDATE `tabProizvodi` SET status = ''")
-    # frappe.db.sql(
-    #     """
-    #     UPDATE `tabProizvodi`
-    #     SET status = ''
-    #     WHERE status != 'on_presta'
-    # """
-    # )
-    # Load the for_insert_eline_data.json file
-    directory_path = frappe.get_module_path("imtecapp", "data")
-    for_insert_json_path = os.path.join(directory_path, "for_insert_eline_data.json")
-
-    with open(for_insert_json_path, mode="r") as file:
-        for_insert_data = json.load(file)
-
-    # Update the 'status' field in Proizvodi based on the for_insert_eline_data.json
-    for item in for_insert_data:
-        art_sifra = item["art_sifra"]
-        status = item["status"]
-        frappe.db.set_value("Proizvodi", {"art_sifra": art_sifra}, "status", status)
-
-    frappe.db.commit()
-
-
-def manual_insert_from_current():
-    directory_path = frappe.get_module_path("imtecapp", "data")
-    current_json_path = os.path.join(directory_path, "current_eline_data.json")
-    insert_data_from_json(current_json_path, assume_insert=True)
-
-
-def manual_testing_no_download():
-    manual_proizvodi()
-    insert_data_from_json(
-        os.path.join(
-            frappe.get_module_path("imtecapp", "data"), "for_insert_eline_data.json"
-        )
-    )
-    clear_and_update_status()
-    return "HopCup!"
-
-
-def download_new_eline_data():
-    combined_data = (
-        fetch_and_combine_data()
-    )  # Fetches and combines data from the external API
-    save_to_json(
-        combined_data, "new_eline_data.json"
-    )  # Saves the combined data to new_eline_data.json
-    return "New eline data downloaded successfully."
-
-
-def update_and_sync():
-    update_proizvodi()
-    insert_data_from_json(
-        os.path.join(
-            frappe.get_module_path("imtecapp", "data"), "for_insert_eline_data.json"
-        )
-    )
-    clear_and_update_status()
-    return "HopCup!"

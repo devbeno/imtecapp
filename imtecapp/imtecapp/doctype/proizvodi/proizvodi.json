@@ -17,9 +17,9 @@
   "proizvodjac",
   "hash",
   "status",
-  "prestashop_manufacturer_id",
+  "prestashop_id",
   "prestashop_category_id",
-  "prestashop_id"
+  "prestashop_manufacturer_id"
  ],
  "fields": [
   {
@@ -96,9 +96,9 @@
   },
   {
    "description": "External ID",
-   "fieldname": "prestashop_manufacturer_id",
+   "fieldname": "prestashop_id",
    "fieldtype": "Data",
-   "label": "PrestaShop Manufacturer ID"
+   "label": "PrestaShop ID"
   },
   {
    "description": "External ID",
@@ -107,11 +107,11 @@
    "label": "PrestaShop Category ID"
   },
   {
-   "description": "External ID",
-   "fieldname": "prestashop_id",
-   "fieldtype": "Data",
-   "label": "PrestaShop ID"
-  }
+    "description": "External ID",
+    "fieldname": "prestashop_manufacturer_id",
+    "fieldtype": "Data",
+    "label": "PrestaShop Manufacturer ID"
+}
  ],
  "index_web_pages_for_search": 1,
  "links": [],

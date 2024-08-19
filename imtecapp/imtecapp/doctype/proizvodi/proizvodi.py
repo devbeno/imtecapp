@@ -1,257 +1,283 @@
-# Copyright (c) 2024, Imtec and contributors
-# For license information, please see license.txt
-
+import requests
+import xml.etree.ElementTree as ET
 import frappe
 from frappe.model.document import Document
-import requests
-from frappe import _
-import base64
-from prestapyt import PrestaShopWebServiceDict
 
 
 class Proizvodi(Document):
     pass
 
 
-@frappe.whitelist()
-def sync_products_to_prestashop(docnames=None):
-    if docnames:
-        # Fetch only the selected products
-        proizvodi = frappe.get_all(
-            "Proizvodi", fields=["*"], filters={"aktivan": 1, "name": ["in", docnames]}
+def get_prestashop_settings():
+    return {
+        "presta_url": "https://test2.imtec.ba/api",
+        "presta_key": "QVBYSFYxQkU5WklTWlFNREZFWVZFNkhLWFBYSklHQkg6",
+    }
+
+
+def get_headers(settings):
+    return {
+        "Authorization": f"Basic {settings['presta_key']}",
+        "Content-Type": "application/xml",
+    }
+
+
+def search_prestashop_product(settings, reference):
+    url = f"{settings['presta_url']}/products"
+    params = {"filter[reference]": reference}
+
+    print(f"Searching for product with reference {reference} using URL: {url}")
+    response = requests.get(url, params=params, headers=get_headers(settings))
+
+    print(f"Response Status Code: {response.status_code}")
+    print(f"Response Text: {response.text}")
+
+    if response.status_code == 200:
+        try:
+            root = ET.fromstring(response.text)
+            products = root.findall(".//product")
+            if products:
+                product_id = products[0].get("id")
+                print(f"Found product ID: {product_id}")
+                return product_id
+            else:
+                print("No product found with the given reference.")
+                return None
+        except ET.ParseError as e:
+            print(f"Failed to parse XML from response: {e}")
+            return None
+    else:
+        print(f"Failed to search product. Status Code: {response.status_code}")
+        print(f"Response: {response.text}")
+        return None
+
+
+def generate_product_xml(product, prestashop_id=None):
+    categories_xml = f"""
+        <category>
+            <id>{product['prestashop_category_id']}</id>
+        </category>
+    """
+
+    xml_payload = f"""
+    <?xml version="1.0" encoding="UTF-8"?>
+    <prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
+        <product>
+            {'<id>' + str(prestashop_id) + '</id>' if prestashop_id else ''}
+            <reference><![CDATA[{product['art_sifra']}]]></reference>
+            <name>
+                <language id="1"><![CDATA[{product['art_naziv']}]]></language>
+                <language id="2"><![CDATA[{product['art_naziv']}]]></language>
+            </name>
+            <id_category_default><![CDATA[{product['prestashop_category_id']}]]></id_category_default>
+            <id_manufacturer><![CDATA[{product['prestashop_manufacturer_id']}]]></id_manufacturer>
+            <price><![CDATA[{product['vpc']}]]></price>
+            <active><![CDATA[{1 if product['aktivan'] else 0}]]></active>
+            <available_for_order><![CDATA[{1 if product['stanje'] > 0 else 0}]]></available_for_order>
+            <show_price><![CDATA[1]]></show_price>
+            <associations>
+                <categories>
+                    {categories_xml}
+                </categories>
+            </associations>
+        </product>
+    </prestashop>
+    """.strip()
+
+    return xml_payload
+
+
+def get_stock_available_id(settings, prestashop_id):
+    url = f"{settings['presta_url']}/stock_availables"
+    params = {"filter[id_product]": prestashop_id}
+
+    response = requests.get(url, params=params, headers=get_headers(settings))
+
+    if response.status_code == 200:
+        try:
+            root = ET.fromstring(response.text)
+            stock_availables = root.findall(".//stock_available")
+            if stock_availables:
+                stock_available_id = stock_availables[0].get("id")
+                print(f"Found stock_available ID: {stock_available_id}")
+                return stock_available_id
+            else:
+                print("No stock_available found for the given product ID.")
+                return None
+        except ET.ParseError as e:
+            print(f"Failed to parse XML from response: {e}")
+            return None
+    else:
+        print(
+            f"Failed to retrieve stock_available. Status Code: {response.status_code}"
+        )
+        print(f"Response: {response.text}")
+        return None
+
+
+def update_stock_quantity(settings, stock_available_id, quantity):
+    url = f"{settings['presta_url']}/stock_availables/{stock_available_id}"
+
+    payload = f"""
+    <?xml version="1.0" encoding="UTF-8"?>
+    <prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
+        <stock_available>
+            <id>{stock_available_id}</id>
+            <quantity>{quantity}</quantity>
+        </stock_available>
+    </prestashop>
+    """.strip().encode(
+        "utf-8"
+    )
+
+    headers = {
+        "Content-Type": "application/xml",
+        "Authorization": f"Basic {settings['presta_key']}",
+    }
+
+    response = requests.patch(url, headers=headers, data=payload)
+
+    if response.status_code in [200, 201]:
+        print(
+            f"Stock quantity for stock_available ID {stock_available_id} updated to {quantity}."
         )
     else:
-        # Fetch all products if no docnames are provided
-        proizvodi = frappe.get_all("Proizvodi", fields=["*"], filters={"aktivan": 1})
+        print(f"Failed to update stock quantity. Status Code: {response.status_code}")
+        print(f"Response: {response.text}")
 
-    # Prepare the data structure
-    products = []
-    stocks = []
 
-    for product in proizvodi:
+def create_prestashop_product(settings, product_data):
+    url = f"{settings['presta_url']}/products"
+    payload = generate_product_xml(product_data)
+    headers = {
+        "Content-Type": "application/xml",
+        "Authorization": f"Basic {settings['presta_key']}",
+    }
+
+    response = requests.post(url, headers=headers, data=payload.encode("utf-8"))
+
+    if response.status_code in [200, 201]:
+        print(f"Product {product_data['art_sifra']} created successfully.")
+        # Parse the response to get the new product ID
+        try:
+            root = ET.fromstring(response.text)
+            product_id = root.find(".//product").get("id")
+            return product_id
+        except ET.ParseError as e:
+            print(f"Failed to parse XML from response: {e}")
+            return None
+    else:
+        print(f"Failed to create product. Status Code: {response.status_code}")
+        print(f"Response: {response.text}")
+        return None
+
+
+def sync_product_to_prestashop_manual(art_sifra):
+    try:
+        # Fetch product details from the local database using Frappe
+        product = frappe.get_doc("Proizvodi", {"art_sifra": art_sifra})
         product_data = {
             "art_sifra": product.art_sifra,
-            "name": product.art_naziv,
+            "art_naziv": product.art_naziv,
             "prestashop_category_id": product.prestashop_category_id,
             "prestashop_manufacturer_id": product.prestashop_manufacturer_id,
             "vpc": product.vpc,
             "aktivan": product.aktivan,
             "stanje": product.stanje,
+            "prestashop_id": product.prestashop_id,
             "status": product.status,
         }
-        products.append(product_data)
 
-        # Prepare stock data only if there's stock information
-        if product.stanje is not None:
-            stock_data = {
-                "art_sifra": product.art_sifra,
-                "stanje": product.stanje,
-                "status": "for_stock",
-            }
-            stocks.append(stock_data)
+        # Get PrestaShop settings
+        settings = get_prestashop_settings()
 
-    # Combine products and stocks into the expected structure
-    data = {"products": products, "stocks": stocks}
+        # Step 1: Find the product ID by reference
+        prestashop_id = search_prestashop_product(settings, product_data["art_sifra"])
 
-    # Use the existing function to sync this data with PrestaShop
-    sync_products_and_stocks_from_json(data)
-
-
-def sync_products_and_stocks_from_json(json_data):
-    """Sync products and stocks using JSON data."""
-    settings = get_prestashop_settings()
-    prestashop = PrestaShopWebServiceDict(
-        settings["presta_url"], settings["presta_key"]
-    )
-
-    products = json_data.get("products", [])
-    stocks = json_data.get("stocks", [])
-
-    # Process products
-    for product in products:
-        process_product(prestashop, product)
-
-    # Process stocks
-    for stock in stocks:
-        process_stock(prestashop, stock)
-
-
-def get_prestashop_settings():
-    """Retrieve PrestaShop API settings from the Frappe database."""
-    settings = frappe.get_single("Generalne Postavke")
-    return {
-        "presta_url": settings.presta_url.rstrip("/"),
-        "presta_key": settings.presta_key,
-    }
-
-
-def process_product(prestashop, product):
-    """Process individual product from JSON."""
-    try:
-        product_code = product["art_sifra"]
-        product_name = product["name"]
-        category_id = product["prestashop_category_id"]
-        manufacturer_id = product["prestashop_manufacturer_id"]
-        price = product.get("vpc", 0)
-        active = product.get("aktivan", 1)
-        stock = product.get("stanje", 0)
-        status = product["status"]
-
-        if status == "for_insert":
-            # Insert new product
-            prestashop_id = create_prestashop_product(prestashop, product)
-            if prestashop_id:
-                update_frappe_with_prestashop_id(product_code, prestashop_id)
-        elif status == "for_update":
-            # Update existing product
-            existing_product = get_prestashop_product_by_reference(
-                prestashop, product_code
+        if prestashop_id:
+            # Product exists, update it
+            print(
+                f"Product with reference {product_data['art_sifra']} already exists with ID {prestashop_id}. Updating it."
             )
-            if existing_product:
-                prestashop_id = existing_product["id"]
-                update_prestashop_product(prestashop, prestashop_id, product)
-
-    except Exception as e:
-        frappe.logger().error(f"Error processing product {product_code}: {str(e)}")
-        print(f"Error processing product {product_code}: {str(e)}")
-
-
-def process_stock(prestashop, stock):
-    """Process individual stock from JSON."""
-    try:
-        product_code = stock["art_sifra"]
-        quantity = stock["stanje"]
-        status = stock["status"]
-
-        if status == "for_stock":
-            existing_product = get_prestashop_product_by_reference(
-                prestashop, product_code
+            url = f"{settings['presta_url']}/products/{prestashop_id}"
+            response = requests.put(
+                url,
+                headers=get_headers(settings),
+                data=generate_product_xml(
+                    product_data, prestashop_id
+                ),  # Pass the ID here
             )
-            if existing_product:
-                stock_id = existing_product["associations"]["stock_availables"][
-                    "stock_available"
-                ]["id"]
-                update_prestashop_stock(prestashop, stock_id, quantity)
 
-    except Exception as e:
-        frappe.logger().error(
-            f"Error processing stock for product {product_code}: {str(e)}"
-        )
-        print(f"Error processing stock for product {product_code}: {str(e)}")
+            if response.status_code in [200, 201]:
+                print(f"Product {product_data['art_sifra']} synced successfully.")
 
+                # Update stock quantity
+                stock_available_id = get_stock_available_id(settings, prestashop_id)
+                if stock_available_id:
+                    update_stock_quantity(
+                        settings, stock_available_id, product_data["stanje"]
+                    )
 
-def update_frappe_with_prestashop_id(product_code, prestashop_id):
-    """Update Frappe database with the PrestaShop product ID."""
-    try:
-        frappe.db.sql(
-            """
-            UPDATE `tabProizvodi`
-            SET prestashop_id = %s
-            WHERE art_sifra = %s
-            """,
-            (prestashop_id, product_code),
-        )
-        frappe.db.commit()
-        print(f"Updated Frappe with PrestaShop product ID for {product_code}")
-    except Exception as e:
-        frappe.logger().error(
-            f"Error updating Frappe for product {product_code}: {str(e)}"
-        )
-        print(f"Error updating Frappe for product {product_code}: {str(e)}")
-
-
-def get_prestashop_product_by_reference(prestashop, reference):
-    """Check if a product exists in PrestaShop by reference."""
-    try:
-        if not reference:
-            frappe.logger().error("Product reference is empty. Cannot fetch product.")
-            return None
-
-        products = prestashop.get(
-            "products", options={"filter[reference]": reference, "display": "full"}
-        )
-
-        # Check if products were returned
-        if products and "products" in products and len(products["products"]) > 0:
-            return products["products"][0]
+            else:
+                print(f"Failed to sync product. Status Code: {response.status_code}")
+                print(f"Response: {response.text}")
         else:
-            frappe.logger().error(
-                f"No products found in PrestaShop with reference: {reference}"
+            # Product doesn't exist, create it
+            print(
+                f"Product with reference {product_data['art_sifra']} does not exist. Creating it."
             )
-            return None
+            prestashop_id = create_prestashop_product(settings, product_data)
+            if prestashop_id:
+                # Update Frappe with the new prestashop_id
+                product.prestashop_id = prestashop_id
+                product.save()
 
+                # Create stock entry for the new product
+                update_stock_quantity(settings, prestashop_id, product_data["stanje"])
+
+    except frappe.DoesNotExistError:
+        print(f"Product with art_sifra {art_sifra} does not exist.")
     except Exception as e:
-        frappe.logger().error(
-            f"Error fetching product by reference from PrestaShop: {str(e)}"
+        print(f"An unexpected error occurred: {str(e)}")
+
+
+def sync_all_active_products():
+    try:
+        # Fetch all active products from Frappe
+        active_products = frappe.get_all(
+            "Proizvodi",
+            filters={
+                "aktivan": 1,
+                "prestashop_category_id": ["is", "set"],
+                "prestashop_manufacturer_id": ["is", "set"],
+            },
+            fields=["art_sifra"],
         )
-        return None
 
+        for product in active_products:
+            sync_product_to_prestashop_manual(product.art_sifra)
 
-def create_prestashop_product(prestashop, product):
-    """Create a new product in PrestaShop and return the ID."""
-    try:
-        new_product = {
-            "product": {
-                "name": {"language": {"attrs": {"id": "2"}, "value": product["name"]}},
-                "price": product.get("vpc", 0),
-                "id_category_default": product["prestashop_category_id"],
-                "id_manufacturer": product["prestashop_manufacturer_id"],
-                "active": product.get("aktivan", 1),
-                "reference": product["art_sifra"],
-                "associations": {
-                    "categories": {
-                        "category": [{"id": product["prestashop_category_id"]}]
-                    }
-                },
-            }
-        }
-        response = prestashop.add("products", new_product)
-        prestashop_id = response["prestashop"]["product"]["id"]
-        return prestashop_id
     except Exception as e:
-        frappe.logger().error(f"Error creating product in PrestaShop: {str(e)}")
-        return None
+        print(f"An unexpected error occurred: {str(e)}")
 
 
-def update_prestashop_product(prestashop, product_id, product):
-    """Update an existing product in PrestaShop."""
+# Call this function to sync all active products
+# sync_all_active_products()
+
+
+def sync_all_products_for_update():
     try:
-        updated_product = {
-            "product": {
-                "id": product_id,
-                "name": {"language": {"attrs": {"id": "2"}, "value": product["name"]}},
-                "price": product.get("vpc", 0),
-                "id_category_default": product["prestashop_category_id"],
-                "id_manufacturer": product["prestashop_manufacturer_id"],
-                "active": product.get("aktivan", 1),
-                "reference": product["art_sifra"],
-                "associations": {
-                    "categories": {
-                        "category": [{"id": product["prestashop_category_id"]}]
-                    }
-                },
-            }
-        }
-        response = prestashop.edit("products", product_id, updated_product)
-        print(f"Updated product: {product['name']} with ID {product_id}")
-        return response
+        # Fetch all products from Frappe where status is "for_update"
+        products_for_update = frappe.get_all(
+            "Proizvodi", filters={"status": "for_update"}, fields=["art_sifra"]
+        )
+
+        for product in products_for_update:
+            sync_product_to_prestashop_manual(product.art_sifra)
+
     except Exception as e:
-        frappe.logger().error(f"Error updating product in PrestaShop: {str(e)}")
-        return None
+        print(f"An unexpected error occurred: {str(e)}")
 
 
-def update_prestashop_stock(prestashop, stock_id, quantity):
-    """Update the stock quantity for a given stock ID in PrestaShop."""
-    try:
-        stock_data = {
-            "stock_available": {
-                "id": stock_id,
-                "quantity": quantity,
-            }
-        }
-        response = prestashop.edit("stock_availables", stock_id, stock_data)
-        print(f"Updated stock for stock ID {stock_id} to {quantity}")
-        return response
-    except Exception as e:
-        frappe.logger().error(f"Error updating stock in PrestaShop: {str(e)}")
-        return None
+# Call this function to sync all products with status "for_update"
+# sync_all_products_for_update()

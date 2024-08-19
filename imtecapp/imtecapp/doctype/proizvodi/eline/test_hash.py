@@ -59,5 +59,4 @@ def run_update_for_large_test_eline():
     update_hashes_in_chunks("new_eline_data.json")
 
 
-# Run the update
-run_update_for_large_test_eline()
+

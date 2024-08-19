@@ -214,7 +214,39 @@ def remove_all_products():
 
 
 def run_remove_all():
-    # remove_all_categories()
-    # remove_all_manufacturers()
+    remove_all_categories()
+    remove_all_manufacturers()
     remove_all_products()
+    clear_prestashop_category_ids()
     return {"status": "Completed"}
+
+
+@frappe.whitelist()
+def clear_prestashop_category_ids():
+    """Set all prestashop_category_id fields in Proizvodi to an empty string."""
+    frappe.db.sql(
+        """
+        UPDATE `tabProizvodi`
+        SET prestashop_category_id = ''
+    """
+    )
+    frappe.db.sql(
+        """
+        UPDATE `tabProizvodi`
+        SET prestashop_manufacturer_id = ''
+    """
+    )
+    frappe.db.sql(
+        """
+        UPDATE `tabProizvodi`
+        SET prestashop_id = ''
+    """
+    )
+    frappe.db.sql(
+        """
+        UPDATE `tabProizvodi`
+        SET status = ''
+    """
+    )
+    frappe.db.commit()
+    print("All prestashop_category_id fields have been cleared in Proizvodi.")
