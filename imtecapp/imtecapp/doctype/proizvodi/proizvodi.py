@@ -2,6 +2,11 @@ import requests
 import xml.etree.ElementTree as ET
 import frappe
 from frappe.model.document import Document
+from imtecapp.imtecapp.doctype.proizvodi.eline.insert_new_data import (
+    insert_data_from_for_insert_eline_data,
+)
+from frappe import _
+import re
 
 
 class Proizvodi(Document):
@@ -10,8 +15,8 @@ class Proizvodi(Document):
 
 def get_prestashop_settings():
     return {
-        "presta_url": "https://test2.imtec.ba/api",
-        "presta_key": "QVBYSFYxQkU5WklTWlFNREZFWVZFNkhLWFBYSklHQkg6",
+        "presta_url": "https://test.imtec.ba/api",
+        "presta_key": "VVMyWkJRTllUQUNENk5HWVU2SUJSQTdONTQzNFUzM0c=",
     }
 
 
@@ -51,30 +56,153 @@ def search_prestashop_product(settings, reference):
         print(f"Response: {response.text}")
         return None
 
+def handle_none(value):
+    return value if value is not None else ""
 
-def generate_product_xml(product, prestashop_id=None):
+def get_existing_product_data(settings, prestashop_id):
+    url = f"{settings['presta_url']}/products/{prestashop_id}"
+    response = requests.get(url, headers=get_headers(settings))
+
+    if response.status_code == 200:
+        try:
+            root = ET.fromstring(response.text)
+            product_data = {}
+
+            # Handle categories in associations
+            existing_categories = []
+            associations = root.find(".//associations")
+            if associations is not None:
+                categories = associations.findall(".//category")
+                existing_categories = [
+                    cat.find("id").text
+                    for cat in categories
+                    if cat.find("id") is not None
+                ]
+            product_data["categories"] = existing_categories
+
+            # Preserve existing values for fields that need to be retained
+            for element in [
+                "description",
+                "description_short",
+                "meta_description",
+                "meta_keywords",
+                "meta_title",
+            ]:
+                field = root.find(f".//{element}")
+                if field is not None:
+                    product_data[element] = {
+                        "1": (
+                            field.find("language[@id='1']").text
+                            if field.find("language[@id='1']") is not None
+                            else ""
+                        ),
+                        "2": (
+                            field.find("language[@id='2']").text
+                            if field.find("language[@id='2']") is not None
+                            else ""
+                        ),
+                    }
+                else:
+                    # Provide default values if these fields are missing
+                    product_data[element] = {"1": "", "2": ""}
+
+            return product_data
+        except ET.ParseError as e:
+            print(f"Failed to parse XML from response: {e}")
+            return None
+    else:
+        print(
+            f"Failed to retrieve existing product data. Status Code: {response.status_code}"
+        )
+        return None
+
+import re
+
+def generate_link_rewrite(name):
+    # Convert to lowercase
+    name = name.lower()
+    # Replace non-alphanumeric characters with hyphens
+    name = re.sub(r'[^a-z0-9]+', '-', name)
+    # Remove leading and trailing hyphens
+    name = name.strip('-')
+    # Ensure the link_rewrite is not empty
+    return name if name else 'default-link-rewrite'
+
+
+def generate_product_xml(product_data, prestashop_id=None):
+    # Set the default category ID to prestashop_category_id from the product data
+    default_category_id = product_data.get("prestashop_category_id", "")
+
+    # Start with the mandatory categories (root and default category)
     categories_xml = f"""
-        <category>
-            <id>{product['prestashop_category_id']}</id>
-        </category>
+    <category>
+        <id>2</id>
+    </category>
+    <category>
+        <id>{default_category_id}</id>
+    </category>
     """
 
+    # Add any additional categories from the product data, preserving existing ones
+    existing_categories = set(product_data.get("categories", []))
+    for category_id in existing_categories:
+        if category_id != "2" and category_id != str(default_category_id):
+            categories_xml += f"""
+            <category>
+                <id>{category_id}</id>
+            </category>
+            """
+
+    prname = product_data.get('art_naziv', '')
+    link_rewrite = generate_link_rewrite(prname)  # Use refined link_rewrite generation
+
+    # Log the generated link_rewrite for debugging
+    print(f"Generated link_rewrite: {link_rewrite}")
+
+    # Create the full XML payload including all required fields
     xml_payload = f"""
     <?xml version="1.0" encoding="UTF-8"?>
     <prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
         <product>
-            {'<id>' + str(prestashop_id) + '</id>' if prestashop_id else ''}
-            <reference><![CDATA[{product['art_sifra']}]]></reference>
+            {'<id><![CDATA[' + str(prestashop_id) + ']]></id>' if prestashop_id else ''}
+            <reference><![CDATA[{product_data['art_sifra']}]]></reference>
             <name>
-                <language id="1"><![CDATA[{product['art_naziv']}]]></language>
-                <language id="2"><![CDATA[{product['art_naziv']}]]></language>
+                <language id="1"><![CDATA[{product_data['art_naziv']}]]></language>
+                <language id="2"><![CDATA[{product_data['art_naziv']}]]></language>
             </name>
-            <id_category_default><![CDATA[{product['prestashop_category_id']}]]></id_category_default>
-            <id_manufacturer><![CDATA[{product['prestashop_manufacturer_id']}]]></id_manufacturer>
-            <price><![CDATA[{product['vpc']}]]></price>
-            <active><![CDATA[{1 if product['aktivan'] else 0}]]></active>
-            <available_for_order><![CDATA[{1 if product['stanje'] > 0 else 0}]]></available_for_order>
+            <link_rewrite>
+                <language id="1"><![CDATA[{link_rewrite}]]></language>
+                <language id="2"><![CDATA[{link_rewrite}]]></language>
+            </link_rewrite>
+            <id_category_default><![CDATA[{default_category_id}]]></id_category_default>
+            <id_manufacturer><![CDATA[{product_data['prestashop_manufacturer_id']}]]></id_manufacturer>
+            <price><![CDATA[{product_data['vpc']}]]></price>
+            <active><![CDATA[{1 if product_data['aktivan'] else 0}]]></active>
+            <available_for_order><![CDATA[{1 if product_data['stanje'] > 0 else 0}]]></available_for_order>
             <show_price><![CDATA[1]]></show_price>
+            <id_tax_rules_group><![CDATA[1]]></id_tax_rules_group>
+            <id_shop_default><![CDATA[1]]></id_shop_default>
+            <visibility><![CDATA[both]]></visibility>
+            <state><![CDATA[1]]></state>
+            <mpn><![CDATA[{product_data['kataloski']}]]></mpn>
+            <minimal_quantity><![CDATA[1]]></minimal_quantity>
+            <description>
+                <language id="1"><![CDATA[{handle_none(product_data.get('description', {}).get('1', ''))}]]></language>
+                <language id="2"><![CDATA[{handle_none(product_data.get('description', {}).get('2', ''))}]]></language>
+            </description>
+            <description_short><![CDATA[{handle_none(product_data.get('description_short', {}).get('2', ''))}]]></description_short>
+            <meta_description>
+                <language id="1"><![CDATA[{handle_none(product_data.get('meta_description', {}).get('1', ''))}]]></language>
+                <language id="2"><![CDATA[{handle_none(product_data.get('meta_description', {}).get('2', ''))}]]></language>
+            </meta_description>
+            <meta_keywords>
+                <language id="1"><![CDATA[{handle_none(product_data.get('meta_keywords', {}).get('1', ''))}]]></language>
+                <language id="2"><![CDATA[{handle_none(product_data.get('meta_keywords', {}).get('2', ''))}]]></language>
+            </meta_keywords>
+            <meta_title>
+                <language id="1"><![CDATA[{handle_none(product_data.get('meta_title', {}).get('1', ''))}]]></language>
+                <language id="2"><![CDATA[{handle_none(product_data.get('meta_title', {}).get('2', ''))}]]></language>
+            </meta_title>
             <associations>
                 <categories>
                     {categories_xml}
@@ -85,6 +213,130 @@ def generate_product_xml(product, prestashop_id=None):
     """.strip()
 
     return xml_payload
+
+
+def sync_product_to_prestashop_manual(art_sifra):
+    try:
+        # Fetch product details from the local database using Frappe
+        product = frappe.get_doc("Proizvodi", {"art_sifra": art_sifra})
+        new_product_data = {
+            "art_sifra": product.art_sifra,
+            "art_naziv": product.art_naziv,
+            "prestashop_category_id": product.prestashop_category_id,  # Default category
+            "prestashop_manufacturer_id": product.prestashop_manufacturer_id,
+            "vpc": product.vpc,
+            "aktivan": product.aktivan,
+            "stanje": product.stanje,
+            "kataloski": product.kataloski,
+            "prestashop_id": product.prestashop_id,
+            "status": product.status,
+        }
+
+        # Get PrestaShop settings
+        settings = get_prestashop_settings()
+
+        # Step 1: Find the product ID by reference
+        prestashop_id = search_prestashop_product(
+            settings, new_product_data["art_sifra"]
+        )
+
+        if prestashop_id:
+            # Retrieve existing product data from PrestaShop
+            existing_product_data = get_existing_product_data(settings, prestashop_id)
+
+            if existing_product_data:
+                # Preserve meta and description fields if not provided in new_product_data
+                for field in [
+                    "description",
+                    "description_short",
+                    "meta_description",
+                    "meta_keywords",
+                    "meta_title",
+                ]:
+                    if field not in new_product_data or not new_product_data[field]:
+                        new_product_data[field] = existing_product_data.get(
+                            field, {"1": "", "2": ""}
+                        )
+
+                # Merge categories from admin panel with existing ones
+                existing_categories = set(existing_product_data.get("categories", []))
+                new_categories = set([new_product_data["prestashop_category_id"]])
+                combined_categories = list(existing_categories.union(new_categories))
+                new_product_data["categories"] = combined_categories
+
+                # Generate XML payload with the updated data
+                xml_payload = generate_product_xml(new_product_data, prestashop_id)
+
+                # Update product on PrestaShop
+                url = f"{settings['presta_url']}/products/{prestashop_id}"
+                response = requests.put(
+                    url, headers=get_headers(settings), data=xml_payload.encode("utf-8")
+                )
+
+                if response.status_code in [200, 201]:
+                    print(
+                        f"Product {new_product_data['art_sifra']} synced successfully."
+                    )
+                    # Update stock quantity
+                    stock_available_id = get_stock_available_id(settings, prestashop_id)
+                    if stock_available_id:
+                        update_stock_quantity(
+                            settings, stock_available_id, new_product_data["stanje"]
+                        )
+                else:
+                    print(
+                        f"Failed to sync product. Status Code: {response.status_code}"
+                    )
+                    print(f"Response: {response.text}")
+            else:
+                print("Failed to retrieve existing product data.")
+
+        else:
+            # Product doesn't exist, create it
+            print(
+                f"Product with reference {new_product_data['art_sifra']} does not exist. Creating it."
+            )
+            prestashop_id = create_prestashop_product(settings, new_product_data)
+            if prestashop_id:
+                # Update Frappe with the new prestashop_id
+                product.prestashop_id = prestashop_id
+                product.save()
+
+                # Create stock entry for the new product
+                update_stock_quantity(
+                    settings, prestashop_id, new_product_data["stanje"]
+                )
+
+    except frappe.DoesNotExistError:
+        print(f"Product with art_sifra {art_sifra} does not exist.")
+    except Exception as e:
+        print(f"An unexpected error occurred: {str(e)}")
+
+
+def create_prestashop_product(settings, product_data):
+    url = f"{settings['presta_url']}/products"
+    payload = generate_product_xml(product_data)
+    headers = {
+        "Content-Type": "application/xml",
+        "Authorization": f"Basic {settings['presta_key']}",
+    }
+
+    response = requests.post(url, headers=headers, data=payload.encode("utf-8"))
+
+    if response.status_code in [200, 201]:
+        print(f"Product {product_data['art_sifra']} created successfully.")
+        # Parse the response to get the new product ID
+        try:
+            root = ET.fromstring(response.text)
+            product_id = root.find(".//product").get("id")
+            return product_id
+        except ET.ParseError as e:
+            print(f"Failed to parse XML from response: {e}")
+            return None
+    else:
+        print(f"Failed to create product. Status Code: {response.status_code}")
+        print(f"Response: {response.text}")
+        return None
 
 
 def get_stock_available_id(settings, prestashop_id):
@@ -146,101 +398,6 @@ def update_stock_quantity(settings, stock_available_id, quantity):
         print(f"Response: {response.text}")
 
 
-def create_prestashop_product(settings, product_data):
-    url = f"{settings['presta_url']}/products"
-    payload = generate_product_xml(product_data)
-    headers = {
-        "Content-Type": "application/xml",
-        "Authorization": f"Basic {settings['presta_key']}",
-    }
-
-    response = requests.post(url, headers=headers, data=payload.encode("utf-8"))
-
-    if response.status_code in [200, 201]:
-        print(f"Product {product_data['art_sifra']} created successfully.")
-        # Parse the response to get the new product ID
-        try:
-            root = ET.fromstring(response.text)
-            product_id = root.find(".//product").get("id")
-            return product_id
-        except ET.ParseError as e:
-            print(f"Failed to parse XML from response: {e}")
-            return None
-    else:
-        print(f"Failed to create product. Status Code: {response.status_code}")
-        print(f"Response: {response.text}")
-        return None
-
-
-def sync_product_to_prestashop_manual(art_sifra):
-    try:
-        # Fetch product details from the local database using Frappe
-        product = frappe.get_doc("Proizvodi", {"art_sifra": art_sifra})
-        product_data = {
-            "art_sifra": product.art_sifra,
-            "art_naziv": product.art_naziv,
-            "prestashop_category_id": product.prestashop_category_id,
-            "prestashop_manufacturer_id": product.prestashop_manufacturer_id,
-            "vpc": product.vpc,
-            "aktivan": product.aktivan,
-            "stanje": product.stanje,
-            "prestashop_id": product.prestashop_id,
-            "status": product.status,
-        }
-
-        # Get PrestaShop settings
-        settings = get_prestashop_settings()
-
-        # Step 1: Find the product ID by reference
-        prestashop_id = search_prestashop_product(settings, product_data["art_sifra"])
-
-        if prestashop_id:
-            # Product exists, update it
-            print(
-                f"Product with reference {product_data['art_sifra']} already exists with ID {prestashop_id}. Updating it."
-            )
-            url = f"{settings['presta_url']}/products/{prestashop_id}"
-            response = requests.put(
-                url,
-                headers=get_headers(settings),
-                data=generate_product_xml(
-                    product_data, prestashop_id
-                ),  # Pass the ID here
-            )
-
-            if response.status_code in [200, 201]:
-                print(f"Product {product_data['art_sifra']} synced successfully.")
-
-                # Update stock quantity
-                stock_available_id = get_stock_available_id(settings, prestashop_id)
-                if stock_available_id:
-                    update_stock_quantity(
-                        settings, stock_available_id, product_data["stanje"]
-                    )
-
-            else:
-                print(f"Failed to sync product. Status Code: {response.status_code}")
-                print(f"Response: {response.text}")
-        else:
-            # Product doesn't exist, create it
-            print(
-                f"Product with reference {product_data['art_sifra']} does not exist. Creating it."
-            )
-            prestashop_id = create_prestashop_product(settings, product_data)
-            if prestashop_id:
-                # Update Frappe with the new prestashop_id
-                product.prestashop_id = prestashop_id
-                product.save()
-
-                # Create stock entry for the new product
-                update_stock_quantity(settings, prestashop_id, product_data["stanje"])
-
-    except frappe.DoesNotExistError:
-        print(f"Product with art_sifra {art_sifra} does not exist.")
-    except Exception as e:
-        print(f"An unexpected error occurred: {str(e)}")
-
-
 def sync_all_active_products():
     try:
         # Fetch all active products from Frappe
@@ -261,11 +418,9 @@ def sync_all_active_products():
         print(f"An unexpected error occurred: {str(e)}")
 
 
-# Call this function to sync all active products
-# sync_all_active_products()
-
-
+@frappe.whitelist()
 def sync_all_products_for_update():
+    insert_data_from_for_insert_eline_data()
     try:
         # Fetch all products from Frappe where status is "for_update"
         products_for_update = frappe.get_all(
@@ -279,5 +434,7 @@ def sync_all_products_for_update():
         print(f"An unexpected error occurred: {str(e)}")
 
 
-# Call this function to sync all products with status "for_update"
-# sync_all_products_for_update()
+@frappe.whitelist()
+def reset_products_status():
+    frappe.db.sql("""UPDATE tabProizvodi SET status = ''""")
+    frappe.db.commit()

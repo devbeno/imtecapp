@@ -214,10 +214,10 @@ def remove_all_products():
 
 
 def run_remove_all():
-    remove_all_categories()
-    remove_all_manufacturers()
+    #remove_all_categories()
+    #remove_all_manufacturers()
     remove_all_products()
-    clear_prestashop_category_ids()
+    #clear_prestashop_category_ids()
     return {"status": "Completed"}
 
 

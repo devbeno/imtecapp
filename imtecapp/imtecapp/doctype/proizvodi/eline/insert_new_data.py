@@ -201,6 +201,7 @@ def compare_and_create_for_insert_json():
 
 
 def insert_data_from_for_insert_eline_data():
+    compare_and_create_for_insert_json()
     directory_path = frappe.get_module_path("imtecapp", "data")
     for_insert_json_path = os.path.join(directory_path, "for_insert_eline_data.json")
 
