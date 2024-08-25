@@ -5,18 +5,84 @@ from frappe.model.document import Document
 from imtecapp.imtecapp.doctype.proizvodi.eline.insert_new_data import (
     insert_data_from_for_insert_eline_data,
 )
+from imtecapp.imtecapp.doctype.proizvodi.sync_categorie import (
+    find_prestashop_category_by_name,
+    create_prestashop_category,
+)
+from imtecapp.imtecapp.doctype.proizvodi.sync_manufacturer import (
+    find_prestashop_manufacturer_by_name,
+    create_prestashop_manufacturer,
+)
 from frappe import _
 import re
+from prestapyt import (
+    PrestaShopWebServiceDict,
+)
+import base64
+import datetime
 
 
 class Proizvodi(Document):
     pass
 
 
+def create_sync_log(sync_type):
+    sync_log = frappe.get_doc(
+        {
+            "doctype": "Sync Log",
+            "sync_type": sync_type,
+            "sync_date": frappe.utils.now(),
+            "status": "In Progress",
+        }
+    )
+    sync_log.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return sync_log
+
+
+def truncate_string(input_string, max_length):
+    return input_string[:max_length]
+
+
+def update_sync_log(sync_log, log_details, status="Success"):
+    max_log_length = 65535
+    if len(log_details) > max_log_length:
+        log_details = truncate_string(log_details, max_log_length)
+        log_message(sync_log, "Log details truncated due to size limit.")
+
+    sync_log.log_details = log_details
+    sync_log.status = status
+
+    try:
+        sync_log.save(ignore_permissions=True)
+        frappe.db.commit()
+    except frappe.TimestampMismatchError:
+        frappe.msgprint(
+            _("Sync log was modified by another process, reloading and retrying...")
+        )
+        sync_log.reload()
+        sync_log.log_details = log_details
+        sync_log.status = status
+        sync_log.save(ignore_permissions=True)
+        frappe.db.commit()
+
+
+def log_message(sync_log, message):
+    """Append a message to the Sync Log."""
+    if sync_log:
+        sync_log.log_details += message + "\n"
+        sync_log.save(ignore_permissions=True)
+        frappe.db.commit()
+
+
 def get_prestashop_settings():
+    presta_key_raw = "APXHV1BE9ZISZQMDFEYVE6HKXPXJIGBH"
+    presta_key_encoded = base64.b64encode(presta_key_raw.encode("utf-8")).decode(
+        "utf-8"
+    )
     return {
-        "presta_url": "https://test.imtec.ba/api",
-        "presta_key": "VVMyWkJRTllUQUNENk5HWVU2SUJSQTdONTQzNFUzM0c=",
+        "presta_url": "https://test2.imtec.ba/api",
+        "presta_key": presta_key_encoded,
     }
 
 
@@ -27,45 +93,64 @@ def get_headers(settings):
     }
 
 
-def search_prestashop_product(settings, reference):
+def clean_response(response_text):
+    clean_text = re.sub(r"^.*?(<\?xml)", r"\1", response_text, flags=re.DOTALL)
+    return clean_text
+
+
+def search_prestashop_product(settings, reference, sync_log=None):
     url = f"{settings['presta_url']}/products"
     params = {"filter[reference]": reference}
 
-    print(f"Searching for product with reference {reference} using URL: {url}")
+    log_message(
+        sync_log, f"Searching for product with reference {reference} using URL: {url}"
+    )
     response = requests.get(url, params=params, headers=get_headers(settings))
 
-    print(f"Response Status Code: {response.status_code}")
-    print(f"Response Text: {response.text}")
+    log_message(sync_log, f"Response Status Code: {response.status_code}")
+    log_message(sync_log, f"Response Text: {response.text}")
 
     if response.status_code == 200:
         try:
-            root = ET.fromstring(response.text)
+            clean_response_text = clean_response(response.text)
+            root = ET.fromstring(clean_response_text)
             products = root.findall(".//product")
             if products:
                 product_id = products[0].get("id")
-                print(f"Found product ID: {product_id}")
+                log_message(sync_log, f"Found product ID: {product_id}")
                 return product_id
             else:
-                print("No product found with the given reference.")
+                log_message(sync_log, "No product found with the given reference.")
                 return None
         except ET.ParseError as e:
-            print(f"Failed to parse XML from response: {e}")
+            log_message(sync_log, f"Failed to parse XML from response: {e}")
             return None
     else:
-        print(f"Failed to search product. Status Code: {response.status_code}")
-        print(f"Response: {response.text}")
+        log_message(
+            sync_log, f"Failed to search product. Status Code: {response.status_code}"
+        )
         return None
+
 
 def handle_none(value):
     return value if value is not None else ""
 
-def get_existing_product_data(settings, prestashop_id):
+
+def get_existing_product_data(settings, prestashop_id, sync_log=None):
     url = f"{settings['presta_url']}/products/{prestashop_id}"
     response = requests.get(url, headers=get_headers(settings))
 
+    log_message(
+        sync_log,
+        f"Fetching existing product data for ID {prestashop_id} using URL: {url}",
+    )
+    log_message(sync_log, f"Response Status Code: {response.status_code}")
+    log_message(sync_log, f"Response Text: {response.text}")
+
     if response.status_code == 200:
         try:
-            root = ET.fromstring(response.text)
+            clean_response_text = clean_response(response.text)
+            root = ET.fromstring(clean_response_text)
             product_data = {}
 
             # Handle categories in associations
@@ -108,32 +193,26 @@ def get_existing_product_data(settings, prestashop_id):
 
             return product_data
         except ET.ParseError as e:
-            print(f"Failed to parse XML from response: {e}")
+            log_message(sync_log, f"Failed to parse XML from response: {e}")
             return None
     else:
-        print(
-            f"Failed to retrieve existing product data. Status Code: {response.status_code}"
+        log_message(
+            sync_log,
+            f"Failed to retrieve existing product data. Status Code: {response.status_code}",
         )
         return None
 
-import re
 
 def generate_link_rewrite(name):
-    # Convert to lowercase
     name = name.lower()
-    # Replace non-alphanumeric characters with hyphens
-    name = re.sub(r'[^a-z0-9]+', '-', name)
-    # Remove leading and trailing hyphens
-    name = name.strip('-')
-    # Ensure the link_rewrite is not empty
-    return name if name else 'default-link-rewrite'
+    name = re.sub(r"[^a-z0-9]+", "-", name)
+    name = name.strip("-")
+    return name if name else "default-link-rewrite"
 
 
 def generate_product_xml(product_data, prestashop_id=None):
-    # Set the default category ID to prestashop_category_id from the product data
     default_category_id = product_data.get("prestashop_category_id", "")
 
-    # Start with the mandatory categories (root and default category)
     categories_xml = f"""
     <category>
         <id>2</id>
@@ -143,7 +222,6 @@ def generate_product_xml(product_data, prestashop_id=None):
     </category>
     """
 
-    # Add any additional categories from the product data, preserving existing ones
     existing_categories = set(product_data.get("categories", []))
     for category_id in existing_categories:
         if category_id != "2" and category_id != str(default_category_id):
@@ -153,13 +231,9 @@ def generate_product_xml(product_data, prestashop_id=None):
             </category>
             """
 
-    prname = product_data.get('art_naziv', '')
-    link_rewrite = generate_link_rewrite(prname)  # Use refined link_rewrite generation
+    prname = product_data.get("art_naziv", "")
+    link_rewrite = generate_link_rewrite(prname)
 
-    # Log the generated link_rewrite for debugging
-    print(f"Generated link_rewrite: {link_rewrite}")
-
-    # Create the full XML payload including all required fields
     xml_payload = f"""
     <?xml version="1.0" encoding="UTF-8"?>
     <prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -215,14 +289,101 @@ def generate_product_xml(product_data, prestashop_id=None):
     return xml_payload
 
 
+def check_and_create_category(group_name, sync_log=None):
+    """Check if the category exists in PrestaShop; if not, create it."""
+    existing_category_id = frappe.db.get_value(
+        "Proizvodi",
+        {"grupanaziv": group_name, "prestashop_category_id": ["is", "set"]},
+        "prestashop_category_id",
+    )
+
+    if existing_category_id:
+        log_message(
+            sync_log,
+            f"Category '{group_name}' already has PrestaShop ID {existing_category_id}",
+        )
+        return existing_category_id
+    else:
+        prestashop_category_id = find_prestashop_category_by_name(group_name)
+        if not prestashop_category_id:
+            prestashop_category_id = create_prestashop_category(
+                {"grupanaziv": group_name}
+            )
+
+        if prestashop_category_id:
+            frappe.db.sql(
+                """
+                UPDATE `tabProizvodi`
+                SET prestashop_category_id = %s
+                WHERE grupanaziv = %s
+                """,
+                (prestashop_category_id, group_name),
+            )
+            frappe.db.commit()
+            log_message(
+                sync_log,
+                f"Updated category '{group_name}' with PrestaShop ID {prestashop_category_id}",
+            )
+        else:
+            log_message(sync_log, f"Failed to process category '{group_name}'")
+
+        return prestashop_category_id
+
+
+def check_and_create_manufacturer(manufacturer_name, sync_log=None):
+    """Check if the manufacturer exists in PrestaShop; if not, create it."""
+    existing_manufacturer_id = frappe.db.get_value(
+        "Proizvodi",
+        {"proizvodjac": manufacturer_name, "prestashop_manufacturer_id": ["is", "set"]},
+        "prestashop_manufacturer_id",
+    )
+
+    if existing_manufacturer_id:
+        log_message(
+            sync_log,
+            f"Manufacturer '{manufacturer_name}' already has PrestaShop ID {existing_manufacturer_id}",
+        )
+        return existing_manufacturer_id
+    else:
+        prestashop_manufacturer_id = find_prestashop_manufacturer_by_name(
+            manufacturer_name
+        )
+        if not prestashop_manufacturer_id:
+            prestashop_manufacturer_id = create_prestashop_manufacturer(
+                {"proizvodjac": manufacturer_name}
+            )
+
+        if prestashop_manufacturer_id:
+            frappe.db.sql(
+                """
+                UPDATE `tabProizvodi`
+                SET prestashop_manufacturer_id = %s
+                WHERE proizvodjac = %s
+                """,
+                (prestashop_manufacturer_id, manufacturer_name),
+            )
+            frappe.db.commit()
+            log_message(
+                sync_log,
+                f"Updated manufacturer '{manufacturer_name}' with PrestaShop ID {prestashop_manufacturer_id}",
+            )
+        else:
+            log_message(
+                sync_log, f"Failed to process manufacturer '{manufacturer_name}'"
+            )
+
+        return prestashop_manufacturer_id
+
+
 def sync_product_to_prestashop_manual(art_sifra):
+    log_details = ""  # Initialize log accumulation for individual sync
+
     try:
-        # Fetch product details from the local database using Frappe
         product = frappe.get_doc("Proizvodi", {"art_sifra": art_sifra})
         new_product_data = {
             "art_sifra": product.art_sifra,
             "art_naziv": product.art_naziv,
-            "prestashop_category_id": product.prestashop_category_id,  # Default category
+            "prestashop_category_id": product.prestashop_category_id,
             "prestashop_manufacturer_id": product.prestashop_manufacturer_id,
             "vpc": product.vpc,
             "aktivan": product.aktivan,
@@ -232,20 +393,21 @@ def sync_product_to_prestashop_manual(art_sifra):
             "status": product.status,
         }
 
-        # Get PrestaShop settings
-        settings = get_prestashop_settings()
+        new_product_data["prestashop_category_id"] = check_and_create_category(
+            product.grupanaziv
+        )
+        new_product_data["prestashop_manufacturer_id"] = check_and_create_manufacturer(
+            product.proizvodjac
+        )
 
-        # Step 1: Find the product ID by reference
+        settings = get_prestashop_settings()
         prestashop_id = search_prestashop_product(
             settings, new_product_data["art_sifra"]
         )
 
         if prestashop_id:
-            # Retrieve existing product data from PrestaShop
             existing_product_data = get_existing_product_data(settings, prestashop_id)
-
             if existing_product_data:
-                # Preserve meta and description fields if not provided in new_product_data
                 for field in [
                     "description",
                     "description_short",
@@ -258,62 +420,57 @@ def sync_product_to_prestashop_manual(art_sifra):
                             field, {"1": "", "2": ""}
                         )
 
-                # Merge categories from admin panel with existing ones
                 existing_categories = set(existing_product_data.get("categories", []))
                 new_categories = set([new_product_data["prestashop_category_id"]])
                 combined_categories = list(existing_categories.union(new_categories))
                 new_product_data["categories"] = combined_categories
 
-                # Generate XML payload with the updated data
                 xml_payload = generate_product_xml(new_product_data, prestashop_id)
 
-                # Update product on PrestaShop
                 url = f"{settings['presta_url']}/products/{prestashop_id}"
                 response = requests.put(
                     url, headers=get_headers(settings), data=xml_payload.encode("utf-8")
                 )
 
                 if response.status_code in [200, 201]:
-                    print(
-                        f"Product {new_product_data['art_sifra']} synced successfully."
-                    )
-                    # Update stock quantity
+                    log_details += f"Product {new_product_data['art_sifra']} synced successfully.\n"
+                    # Immediately update stock after successful product sync
                     stock_available_id = get_stock_available_id(settings, prestashop_id)
                     if stock_available_id:
                         update_stock_quantity(
-                            settings, stock_available_id, new_product_data["stanje"]
+                            settings,
+                            stock_available_id,
+                            prestashop_id,
+                            new_product_data["stanje"],
                         )
                 else:
-                    print(
-                        f"Failed to sync product. Status Code: {response.status_code}"
+                    log_details += (
+                        f"Failed to sync product. Status Code: {response.status_code}\n"
                     )
-                    print(f"Response: {response.text}")
+                    log_details += f"Response: {response.text}\n"
             else:
-                print("Failed to retrieve existing product data.")
+                log_details += "Failed to retrieve existing product data.\n"
 
         else:
-            # Product doesn't exist, create it
-            print(
-                f"Product with reference {new_product_data['art_sifra']} does not exist. Creating it."
-            )
+            log_details += f"Product with reference {new_product_data['art_sifra']} does not exist. Creating it.\n"
             prestashop_id = create_prestashop_product(settings, new_product_data)
             if prestashop_id:
-                # Update Frappe with the new prestashop_id
                 product.prestashop_id = prestashop_id
                 product.save()
-
-                # Create stock entry for the new product
+                # Immediately update stock after successful product creation
                 update_stock_quantity(
                     settings, prestashop_id, new_product_data["stanje"]
                 )
 
     except frappe.DoesNotExistError:
-        print(f"Product with art_sifra {art_sifra} does not exist.")
+        log_details += f"Product with art_sifra {art_sifra} does not exist.\n"
     except Exception as e:
-        print(f"An unexpected error occurred: {str(e)}")
+        log_details += f"An unexpected error occurred: {str(e)}\n"
+
+    return log_details  # Return accumulated logs for each product sync
 
 
-def create_prestashop_product(settings, product_data):
+def create_prestashop_product(settings, product_data, sync_log=None):
     url = f"{settings['presta_url']}/products"
     payload = generate_product_xml(product_data)
     headers = {
@@ -324,50 +481,74 @@ def create_prestashop_product(settings, product_data):
     response = requests.post(url, headers=headers, data=payload.encode("utf-8"))
 
     if response.status_code in [200, 201]:
-        print(f"Product {product_data['art_sifra']} created successfully.")
-        # Parse the response to get the new product ID
+        log_message(
+            sync_log, f"Product {product_data['art_sifra']} created successfully."
+        )
         try:
             root = ET.fromstring(response.text)
             product_id = root.find(".//product").get("id")
             return product_id
         except ET.ParseError as e:
-            print(f"Failed to parse XML from response: {e}")
+            log_message(sync_log, f"Failed to parse XML from response: {e}")
             return None
     else:
-        print(f"Failed to create product. Status Code: {response.status_code}")
-        print(f"Response: {response.text}")
+        log_message(
+            sync_log, f"Failed to create product. Status Code: {response.status_code}"
+        )
         return None
 
 
-def get_stock_available_id(settings, prestashop_id):
+def get_stock_available_id(settings, prestashop_id, sync_log=None):
     url = f"{settings['presta_url']}/stock_availables"
-    params = {"filter[id_product]": prestashop_id}
+    params = {"filter[id_product]": prestashop_id, "display": "full"}
 
     response = requests.get(url, params=params, headers=get_headers(settings))
 
+    log_message(
+        sync_log,
+        f"Fetching stock_available for product ID {prestashop_id} using URL: {url}",
+    )
+    log_message(sync_log, f"Response Status Code: {response.status_code}")
+    log_message(sync_log, f"Response Text: {response.text}")
+
     if response.status_code == 200:
         try:
-            root = ET.fromstring(response.text)
+            clean_response_text = clean_response(response.text)
+            root = ET.fromstring(clean_response_text)
             stock_availables = root.findall(".//stock_available")
-            if stock_availables:
-                stock_available_id = stock_availables[0].get("id")
-                print(f"Found stock_available ID: {stock_available_id}")
-                return stock_available_id
-            else:
-                print("No stock_available found for the given product ID.")
-                return None
+
+            for stock_available in stock_availables:
+                id_product_attribute = stock_available.find("id_product_attribute")
+
+                if (
+                    id_product_attribute is not None
+                    and id_product_attribute.text == "0"
+                ):
+                    stock_available_id = stock_available.find("id").text
+                    log_message(
+                        sync_log,
+                        f"Found stock_available ID: {stock_available_id} for product ID: {prestashop_id}",
+                    )
+                    return stock_available_id
+
+            log_message(
+                sync_log, "No suitable stock_available found for the given product ID."
+            )
+            return None
         except ET.ParseError as e:
-            print(f"Failed to parse XML from response: {e}")
+            log_message(sync_log, f"Failed to parse XML from response: {e}")
             return None
     else:
-        print(
-            f"Failed to retrieve stock_available. Status Code: {response.status_code}"
+        log_message(
+            sync_log,
+            f"Failed to retrieve stock_available. Status Code: {response.status_code}",
         )
-        print(f"Response: {response.text}")
         return None
 
 
-def update_stock_quantity(settings, stock_available_id, quantity):
+def update_stock_quantity(
+    settings, stock_available_id, product_id, quantity, sync_log=None
+):
     url = f"{settings['presta_url']}/stock_availables/{stock_available_id}"
 
     payload = f"""
@@ -375,7 +556,13 @@ def update_stock_quantity(settings, stock_available_id, quantity):
     <prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
         <stock_available>
             <id>{stock_available_id}</id>
-            <quantity>{quantity}</quantity>
+            <id_product>{product_id}</id_product>
+            <id_product_attribute><![CDATA[0]]></id_product_attribute>
+            <id_shop><![CDATA[1]]></id_shop>
+            <id_shop_group><![CDATA[0]]></id_shop_group>
+            <quantity><![CDATA[{quantity}]]></quantity>
+            <depends_on_stock><![CDATA[0]]></depends_on_stock>
+            <out_of_stock><![CDATA[2]]></out_of_stock>
         </stock_available>
     </prestashop>
     """.strip().encode(
@@ -389,49 +576,76 @@ def update_stock_quantity(settings, stock_available_id, quantity):
 
     response = requests.patch(url, headers=headers, data=payload)
 
+    log_message(
+        sync_log,
+        f"Updating stock for stock_available ID {stock_available_id} to {quantity} using URL: {url}",
+    )
+    log_message(sync_log, f"Response Status Code: {response.status_code}")
+    log_message(sync_log, f"Response Text: {response.text}")
+
     if response.status_code in [200, 201]:
-        print(
-            f"Stock quantity for stock_available ID {stock_available_id} updated to {quantity}."
+        log_message(
+            sync_log,
+            f"Stock quantity for stock_available ID {stock_available_id} updated to {quantity}.",
         )
     else:
-        print(f"Failed to update stock quantity. Status Code: {response.status_code}")
-        print(f"Response: {response.text}")
+        log_message(
+            sync_log,
+            f"Failed to update stock quantity. Status Code: {response.status_code}",
+        )
 
 
-def sync_all_active_products():
+@frappe.whitelist()
+def sync_all_active_products(batch_size=500):
+    log_details = ""
+    sync_log = create_sync_log("Sync All Active Products")
+
     try:
-        # Fetch all active products from Frappe
         active_products = frappe.get_all(
             "Proizvodi",
             filters={
-                "aktivan": 1,
-                "prestashop_category_id": ["is", "set"],
-                "prestashop_manufacturer_id": ["is", "set"],
+                "aktivan": 1
+                # "prestashop_category_id": ["is", "set"],
+                # "prestashop_manufacturer_id": ["is", "set"],
             },
             fields=["art_sifra"],
+            limit=batch_size,
         )
 
         for product in active_products:
-            sync_product_to_prestashop_manual(product.art_sifra)
+            result = sync_product_to_prestashop_manual(product.art_sifra)
+            log_details += result + "\n"
+
+        update_sync_log(sync_log, log_details, status="Success")
 
     except Exception as e:
-        print(f"An unexpected error occurred: {str(e)}")
+        log_details += f"An unexpected error occurred: {str(e)}\n"
+        update_sync_log(sync_log, log_details, status="Failed")
 
 
 @frappe.whitelist()
 def sync_all_products_for_update():
+    # Initialize log accumulation
+    log_details = ""
+    sync_log = create_sync_log("Sync All Products for Update")
+
     insert_data_from_for_insert_eline_data()
+
     try:
-        # Fetch all products from Frappe where status is "for_update"
         products_for_update = frappe.get_all(
             "Proizvodi", filters={"status": "for_update"}, fields=["art_sifra"]
         )
 
         for product in products_for_update:
-            sync_product_to_prestashop_manual(product.art_sifra)
+            result = sync_product_to_prestashop_manual(product.art_sifra)
+            log_details += result + "\n"  # Accumulate logs for each product sync
+
+        # Update log with the accumulated details after all products are processed
+        update_sync_log(sync_log, log_details, status="Success")
 
     except Exception as e:
-        print(f"An unexpected error occurred: {str(e)}")
+        log_details += f"An unexpected error occurred: {str(e)}\n"
+        update_sync_log(sync_log, log_details, status="Failed")
 
 
 @frappe.whitelist()
