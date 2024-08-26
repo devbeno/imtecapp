@@ -20,31 +20,37 @@ from prestapyt import (
 )
 import base64
 import datetime
-
+import os
+import json
 
 class Proizvodi(Document):
     pass
 
 
 def create_sync_log(sync_type):
-    sync_log = frappe.get_doc(
-        {
-            "doctype": "Sync Log",
-            "sync_type": sync_type,
-            "sync_date": frappe.utils.now(),
-            "status": "In Progress",
-        }
-    )
-    sync_log.insert(ignore_permissions=True)
-    frappe.db.commit()
-    return sync_log
-
+    """Create a new Sync Log entry."""
+    try:
+        sync_log = frappe.get_doc(
+            {
+                "doctype": "Sync Log",
+                "sync_type": sync_type,
+                "sync_date": frappe.utils.now(),
+                "status": "In Progress",
+            }
+        )
+        sync_log.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return sync_log
+    except Exception as e:
+        frappe.log_error(f"Failed to create sync log: {e}", "Sync Log Creation Error")
+        frappe.throw(_("Unable to create sync log due to an error."))
 
 def truncate_string(input_string, max_length):
     return input_string[:max_length]
 
 
 def update_sync_log(sync_log, log_details, status="Success"):
+    """Update the Sync Log entry with accumulated log details and final status."""
     max_log_length = 65535
     if len(log_details) > max_log_length:
         log_details = truncate_string(log_details, max_log_length)
@@ -65,6 +71,9 @@ def update_sync_log(sync_log, log_details, status="Success"):
         sync_log.status = status
         sync_log.save(ignore_permissions=True)
         frappe.db.commit()
+    except Exception as e:
+        frappe.log_error(f"Failed to update sync log: {e}", "Sync Log Update Error")
+        frappe.throw(_("Unable to update sync log due to an error."))
 
 
 def log_message(sync_log, message):
@@ -379,7 +388,10 @@ def sync_product_to_prestashop_manual(art_sifra):
     log_details = ""  # Initialize log accumulation for individual sync
 
     try:
+        # Fetch the product document
         product = frappe.get_doc("Proizvodi", {"art_sifra": art_sifra})
+
+        # Prepare new product data for syncing
         new_product_data = {
             "art_sifra": product.art_sifra,
             "art_naziv": product.art_naziv,
@@ -393,33 +405,34 @@ def sync_product_to_prestashop_manual(art_sifra):
             "status": product.status,
         }
 
-        new_product_data["prestashop_category_id"] = check_and_create_category(
-            product.grupanaziv
-        )
-        new_product_data["prestashop_manufacturer_id"] = check_and_create_manufacturer(
-            product.proizvodjac
-        )
+        # Check and create category if needed
+        new_prestashop_category_id = check_and_create_category(product.grupanaziv)
+        new_product_data["prestashop_category_id"] = new_prestashop_category_id
 
+        # Check and create manufacturer if needed
+        new_prestashop_manufacturer_id = check_and_create_manufacturer(product.proizvodjac)
+        new_product_data["prestashop_manufacturer_id"] = new_prestashop_manufacturer_id
+
+        # Update the Proizvodi document with the new category and manufacturer IDs if they have changed
+        if product.prestashop_category_id != new_prestashop_category_id or product.prestashop_manufacturer_id != new_prestashop_manufacturer_id:
+            product.prestashop_category_id = new_prestashop_category_id
+            product.prestashop_manufacturer_id = new_prestashop_manufacturer_id
+            product.save(ignore_permissions=True)
+            frappe.db.commit()  # Commit changes to the database
+
+        # Sync product to PrestaShop
         settings = get_prestashop_settings()
-        prestashop_id = search_prestashop_product(
-            settings, new_product_data["art_sifra"]
-        )
+        prestashop_id = search_prestashop_product(settings, new_product_data["art_sifra"])
 
         if prestashop_id:
             existing_product_data = get_existing_product_data(settings, prestashop_id)
             if existing_product_data:
-                for field in [
-                    "description",
-                    "description_short",
-                    "meta_description",
-                    "meta_keywords",
-                    "meta_title",
-                ]:
+                # Use existing data to preserve certain fields if not provided
+                for field in ["description", "description_short", "meta_description", "meta_keywords", "meta_title"]:
                     if field not in new_product_data or not new_product_data[field]:
-                        new_product_data[field] = existing_product_data.get(
-                            field, {"1": "", "2": ""}
-                        )
+                        new_product_data[field] = existing_product_data.get(field, {"1": "", "2": ""})
 
+                # Merge existing and new categories
                 existing_categories = set(existing_product_data.get("categories", []))
                 new_categories = set([new_product_data["prestashop_category_id"]])
                 combined_categories = list(existing_categories.union(new_categories))
@@ -428,25 +441,16 @@ def sync_product_to_prestashop_manual(art_sifra):
                 xml_payload = generate_product_xml(new_product_data, prestashop_id)
 
                 url = f"{settings['presta_url']}/products/{prestashop_id}"
-                response = requests.put(
-                    url, headers=get_headers(settings), data=xml_payload.encode("utf-8")
-                )
+                response = requests.put(url, headers=get_headers(settings), data=xml_payload.encode("utf-8"))
 
                 if response.status_code in [200, 201]:
                     log_details += f"Product {new_product_data['art_sifra']} synced successfully.\n"
                     # Immediately update stock after successful product sync
                     stock_available_id = get_stock_available_id(settings, prestashop_id)
                     if stock_available_id:
-                        update_stock_quantity(
-                            settings,
-                            stock_available_id,
-                            prestashop_id,
-                            new_product_data["stanje"],
-                        )
+                        update_stock_quantity(settings, stock_available_id, prestashop_id, new_product_data["stanje"])
                 else:
-                    log_details += (
-                        f"Failed to sync product. Status Code: {response.status_code}\n"
-                    )
+                    log_details += f"Failed to sync product. Status Code: {response.status_code}\n"
                     log_details += f"Response: {response.text}\n"
             else:
                 log_details += "Failed to retrieve existing product data.\n"
@@ -456,11 +460,10 @@ def sync_product_to_prestashop_manual(art_sifra):
             prestashop_id = create_prestashop_product(settings, new_product_data)
             if prestashop_id:
                 product.prestashop_id = prestashop_id
-                product.save()
+                product.save(ignore_permissions=True)
+                frappe.db.commit()
                 # Immediately update stock after successful product creation
-                update_stock_quantity(
-                    settings, prestashop_id, new_product_data["stanje"]
-                )
+                update_stock_quantity(settings, prestashop_id, new_product_data["stanje"])
 
     except frappe.DoesNotExistError:
         log_details += f"Product with art_sifra {art_sifra} does not exist.\n"
@@ -601,21 +604,34 @@ def sync_all_active_products(batch_size=500):
     sync_log = create_sync_log("Sync All Active Products")
 
     try:
-        active_products = frappe.get_all(
-            "Proizvodi",
-            filters={
-                "aktivan": 1
-                # "prestashop_category_id": ["is", "set"],
-                # "prestashop_manufacturer_id": ["is", "set"],
-            },
-            fields=["art_sifra"],
-            limit=batch_size,
-        )
+        # Start index for batching
+        start = 0
+        # Count total active products
+        total_records = frappe.db.count("Proizvodi", {"aktivan": 1})
 
-        for product in active_products:
-            result = sync_product_to_prestashop_manual(product.art_sifra)
-            log_details += result + "\n"
+        while start < total_records:
+            # Fetch the next batch of active products
+            active_products = frappe.get_all(
+                "Proizvodi",
+                filters={"aktivan": 1},
+                fields=["art_sifra"],
+                start=start,
+                limit=batch_size
+            )
 
+            # Process each product in the current batch
+            for product in active_products:
+                # Sync each product to PrestaShop and collect the log details
+                result = sync_product_to_prestashop_manual(product.art_sifra)
+                log_details += result + "\n"
+
+            # Update the sync log with the accumulated log details after each batch
+            update_sync_log(sync_log, log_details, status="In Progress")
+
+            # Increment the start index for the next batch
+            start += batch_size
+
+        # Final update to sync log after all products are processed
         update_sync_log(sync_log, log_details, status="Success")
 
     except Exception as e:
@@ -629,6 +645,9 @@ def sync_all_products_for_update():
     log_details = ""
     sync_log = create_sync_log("Sync All Products for Update")
 
+    # Debugging print statement
+    print("Starting sync_all_products_for_update function...", file=open("/home/frappe/frappe-bench/logs/sync.debug.log", "a"))
+
     insert_data_from_for_insert_eline_data()
 
     try:
@@ -640,12 +659,114 @@ def sync_all_products_for_update():
             result = sync_product_to_prestashop_manual(product.art_sifra)
             log_details += result + "\n"  # Accumulate logs for each product sync
 
+            # Debugging print statement
+            print(f"Processed product {product.art_sifra}", file=open("/home/frappe/frappe-bench/logs/sync.debug.log", "a"))
+
         # Update log with the accumulated details after all products are processed
         update_sync_log(sync_log, log_details, status="Success")
 
     except Exception as e:
         log_details += f"An unexpected error occurred: {str(e)}\n"
         update_sync_log(sync_log, log_details, status="Failed")
+        
+        # Debugging print statement
+        print(f"Error occurred: {str(e)}", file=open("/home/frappe/frappe-bench/logs/sync.debug.log", "a"))
+
+    print("Completed sync_all_products_for_update function.", file=open("/home/frappe/frappe-bench/logs/sync.debug.log", "a"))
+
+
+
+@frappe.whitelist()
+def sync_all_stanje_products(batch_size=500):
+    log_details = ""
+    sync_log = create_sync_log("Sync All Active Products")
+
+    try:
+        # Start index for batching
+        start = 0
+        # Count total active products
+        total_records = frappe.db.count("Proizvodi", {"stanje": ["!=", 0]})
+
+        while start < total_records:
+            # Fetch the next batch of active products with limit and offset
+            stanje_products = frappe.get_all(
+                "Proizvodi",
+                filters={"stanje": ["!=", 0]},
+                fields=["art_sifra"],
+                limit=batch_size,
+                start=start,
+            )
+
+            # Process each product in the current batch
+            for product in stanje_products:
+                # Sync each product to PrestaShop and collect the log details
+                result = sync_product_to_prestashop_manual(product["art_sifra"])
+                log_details += result + "\n"
+
+            # Update the sync log with the accumulated log details after each batch
+            update_sync_log(sync_log, log_details, status="In Progress")
+
+            # Increment the start index for the next batch
+            start += batch_size
+
+        # Final update to sync log after all products are processed
+        update_sync_log(sync_log, log_details, status="Success")
+
+    except Exception as e:
+        log_details += f"An unexpected error occurred: {str(e)}\n"
+        update_sync_log(sync_log, log_details, status="Failed")
+
+def manual_insert_product_from_json(art_sifra):
+    """
+    Manually add or update a product from current_eline_data.json based on the provided art_sifra.
+    """
+    # Define the path to the directory and the file
+    directory_path = frappe.get_module_path("imtecapp", "data")
+    current_json_path = os.path.join(directory_path, "current_eline_data.json")
+
+    # Check if the file exists
+    if not os.path.exists(current_json_path):
+        frappe.throw(_("The current_eline_data.json file does not exist."))
+
+    # Load the data from current_eline_data.json
+    with open(current_json_path, mode="r") as file:
+        data = json.load(file)
+
+    # Find the product with the specified art_sifra
+    product_data = next((item for item in data if item["art_sifra"] == art_sifra), None)
+
+    if not product_data:
+        frappe.throw(_("No product found with art_sifra {0} in current_eline_data.json").format(art_sifra))
+
+    # Check if the product already exists in Proizvodi
+    existing_product = frappe.db.exists("Proizvodi", {"art_sifra": art_sifra})
+
+    if existing_product:
+        # If the product exists, update it using the sync function
+        log_details = sync_product_to_prestashop_manual(art_sifra)
+        frappe.msgprint(_("Product with art_sifra {0} updated.").format(art_sifra))
+    else:
+        # If the product does not exist, create it
+        new_doc = frappe.get_doc({
+            "doctype": "Proizvodi",
+            "art_sifra": product_data["art_sifra"],
+            "agp_id": product_data["agp_id"],
+            "sifra": product_data["sifra"],
+            "vpc": product_data["vpc"],
+            "aktivan": product_data["aktivan"],
+            "stanje": product_data["stanje"],
+            "art_naziv": product_data["art_naziv"],
+            "kataloski": product_data["kataloski"],
+            "grupanaziv": product_data["grupanaziv"],
+            "proizvodjac": product_data["proizvodjac"],
+            "hash": product_data["hash"],
+        })
+        new_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # After inserting, sync the new product to PrestaShop
+        sync_product_to_prestashop_manual(art_sifra)
+        frappe.msgprint(_("Product with art_sifra {0} successfully inserted and synced.").format(art_sifra))
 
 
 @frappe.whitelist()

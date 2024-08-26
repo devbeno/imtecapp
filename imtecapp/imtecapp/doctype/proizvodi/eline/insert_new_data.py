@@ -5,6 +5,7 @@ import os
 import hashlib
 import json
 import shutil
+import time
 
 BATCH_SIZE = 1000
 
@@ -253,3 +254,77 @@ def insert_data_from_current_eline_data():
 
     # Commit the changes to the database
     frappe.db.commit()
+
+
+def fetch_and_insert_current_eline_data():
+    start_time = time.time()
+    print("Starting data fetch and insert process...")
+
+    # Define the path to the directory and the file
+    directory_path = frappe.get_module_path("imtecapp", "data")
+    current_json_path = os.path.join(directory_path, "current_eline_data.json")
+
+    # Fetch and combine data, and save it to current_eline_data.json
+    print("Fetching and combining data...")
+    fetch_and_combine_data("current_eline_data.json")
+    print(
+        "Data fetched and combined in {:.2f} seconds".format(time.time() - start_time)
+    )
+
+    # Load the data from current_eline_data.json
+    print("Loading data from JSON file...")
+    with open(current_json_path, mode="r") as file:
+        data = json.load(file)
+    print("Data loaded in {:.2f} seconds".format(time.time() - start_time))
+
+    # Fetch all existing art_sifra in one go
+    print("Fetching all existing art_sifra from Proizvodi...")
+    existing_art_sifras = set(frappe.get_all("Proizvodi", pluck="art_sifra"))
+    print(
+        "Fetched existing art_sifra in {:.2f} seconds".format(time.time() - start_time)
+    )
+
+    to_insert = []
+
+    for item in data:  # Since data is a list of products
+        art_sifra = item["art_sifra"]
+
+        # Check if the record already exists in Proizvodi
+        if art_sifra not in existing_art_sifras:
+            # If it doesn't exist, prepare it for insertion
+            item["name"] = frappe.generate_hash(
+                length=10
+            )  # Generate a unique name for the new document
+            to_insert.append(item)
+
+    print(
+        "Data prepared for insertion in {:.2f} seconds".format(time.time() - start_time)
+    )
+
+    # Insert new records in batches
+    if to_insert:
+        for i in range(0, len(to_insert), BATCH_SIZE):
+            batch_to_insert = to_insert[i : i + BATCH_SIZE]
+            frappe.db.bulk_insert(
+                "Proizvodi",
+                fields=list(batch_to_insert[0].keys()),
+                values=[list(d.values()) for d in batch_to_insert],
+            )
+            print(
+                "Inserted batch {} of {} in {:.2f} seconds".format(
+                    i // BATCH_SIZE + 1,
+                    len(to_insert) // BATCH_SIZE + 1,
+                    time.time() - start_time,
+                )
+            )
+
+    # Commit the changes to the database
+    frappe.db.commit()
+
+    print(
+        "Data inserted and committed in {:.2f} seconds".format(time.time() - start_time)
+    )
+
+    frappe.msgprint(
+        "Data fetched and inserted successfully from current_eline_data.json."
+    )
