@@ -383,7 +383,7 @@ def check_and_create_manufacturer(manufacturer_name, sync_log=None):
 
         return prestashop_manufacturer_id
 
-
+@frappe.whitelist()
 def sync_product_to_prestashop_manual(art_sifra):
     log_details = ""  # Initialize log accumulation for individual sync
 
@@ -599,7 +599,7 @@ def update_stock_quantity(
 
 
 @frappe.whitelist()
-def sync_all_active_products(batch_size=500):
+def sync_all_active_products(batch_size=200):  # Adjust batch size
     log_details = ""
     sync_log = create_sync_log("Sync All Active Products")
 
@@ -610,13 +610,13 @@ def sync_all_active_products(batch_size=500):
         total_records = frappe.db.count("Proizvodi", {"aktivan": 1})
 
         while start < total_records:
-            # Fetch the next batch of active products
+            # Fetch the next batch of active products with limit and offset
             active_products = frappe.get_all(
                 "Proizvodi",
                 filters={"aktivan": 1},
                 fields=["art_sifra"],
                 start=start,
-                limit=batch_size
+                limit=batch_size  # Use dynamic batch size
             )
 
             # Process each product in the current batch
@@ -716,6 +716,7 @@ def sync_all_stanje_products(batch_size=500):
         log_details += f"An unexpected error occurred: {str(e)}\n"
         update_sync_log(sync_log, log_details, status="Failed")
 
+@frappe.whitelist()
 def manual_insert_product_from_json(art_sifra):
     """
     Manually add or update a product from current_eline_data.json based on the provided art_sifra.

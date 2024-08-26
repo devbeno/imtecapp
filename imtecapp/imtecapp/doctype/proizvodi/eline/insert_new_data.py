@@ -157,16 +157,28 @@ def compare_and_create_for_insert_json():
     current_json_path = os.path.join(directory_path, "current_eline_data.json")
     new_json_path = os.path.join(directory_path, "new_eline_data.json")
 
-    # Ensure current_eline_data.json exists
-    if not os.path.exists(current_json_path):
-        raise FileNotFoundError(f"No such file or directory: {current_json_path}")
+    # Ensure the data directory exists
+    if not os.path.exists(directory_path):
+        os.makedirs(directory_path)
+
+    # Fetch all data from the "Proizvodi" doctype and save to current_eline_data.json
+    proizvodi_data = frappe.get_all(
+        "Proizvodi",
+        fields=[
+            "art_sifra", "agp_id", "sifra", "vpc", "aktivan",
+            "stanje", "art_naziv", "kataloski", "grupanaziv", "proizvodjac", "hash"
+        ]
+    )
+
+    # Save fetched data to current_eline_data.json
+    save_to_json(proizvodi_data, current_json_path)
+
+    # Fetch new data and generate new_eline_data.json
+    fetch_and_combine_data(new_json_path)
 
     # Load current data
     with open(current_json_path, mode="r") as current_file:
         current_data = json.load(current_file)
-
-    # Fetch new data and generate new_eline_data.json
-    fetch_and_combine_data(new_json_path)
 
     # Load new data
     with open(new_json_path, mode="r") as new_file:
@@ -177,6 +189,7 @@ def compare_and_create_for_insert_json():
 
     for_insert_data = []
 
+    # Compare the data and prepare for insert or update
     for new_item in new_data:
         art_sifra = new_item["art_sifra"]
         new_hash = new_item["hash"]
@@ -191,7 +204,7 @@ def compare_and_create_for_insert_json():
                 for_insert_data.append(new_item)
         else:
             # If the item doesn't exist in current data, mark it for insert
-            new_item["status"] = "for_insert"
+            new_item["status"] = "for_update"
             for_insert_data.append(new_item)
 
     # Save the resulting list of items to for_insert_eline_data.json
