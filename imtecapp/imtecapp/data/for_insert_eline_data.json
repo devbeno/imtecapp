@@ -1,44 +1,30 @@
 [
     {
-        "art_sifra": "162898",
-        "agp_id": 50,
-        "sifra": "565614",
-        "vpc": 2991.453,
-        "aktivan": 0,
-        "stanje": 0,
-        "art_naziv": "Vertiv EDGE UPS_3kVA 230V_2U Rack/Twr",
-        "kataloski": "EDGE-3000IRT2UXL",
-        "grupanaziv": "Ups ure\u0111aji",
-        "proizvodjac": "VERTIV",
-        "hash": "3732b61f3d9b291a4cbc8d138cb4822e",
-        "status": "for_update"
-    },
-    {
-        "art_sifra": "166935",
-        "agp_id": 350,
-        "sifra": "560474",
-        "vpc": 0.0,
-        "aktivan": 1,
-        "stanje": 0,
-        "art_naziv": "Beurer LR 220 filter za pre\u010di\u0161\u0107iva\u010d",
-        "kataloski": "",
-        "grupanaziv": "Pre\u010di\u0161\u0107iva\u010di zraka",
-        "proizvodjac": "Beurer",
-        "hash": "98c4ea3794b43726d7fc4953a0ef643d",
-        "status": "for_update"
-    },
-    {
-        "art_sifra": "166936",
+        "art_sifra": "166938",
         "agp_id": 253,
-        "sifra": "122494",
+        "sifra": "100071",
         "vpc": 0,
         "aktivan": 0,
         "stanje": 0,
-        "art_naziv": "B-SMART Board MX265 interaktivni panel V4 65'' + nosa\u010d + kabl + ugradnja",
+        "art_naziv": "Interaktivni panel Benq Board Essential RE6504 /WiFi adapter/Smart licenca 1 god",
         "kataloski": "",
         "grupanaziv": "Smart paneli",
-        "proizvodjac": "SMART Technologies",
-        "hash": "b491e46a5613fe8e882448f3832f28aa",
+        "proizvodjac": "Benq",
+        "hash": "ceb6061455cab701f5ccc971b0b4c559",
+        "status": "for_update"
+    },
+    {
+        "art_sifra": "166939",
+        "agp_id": 253,
+        "sifra": "100071",
+        "vpc": 0,
+        "aktivan": 0,
+        "stanje": 0,
+        "art_naziv": "Interaktivni panel Benq Board Essential RE6504 + WiFi adapter",
+        "kataloski": "",
+        "grupanaziv": "Smart paneli",
+        "proizvodjac": "Benq",
+        "hash": "58fb4f666aebbc4ec60eddc362894d51",
         "status": "for_update"
     }
 ]
