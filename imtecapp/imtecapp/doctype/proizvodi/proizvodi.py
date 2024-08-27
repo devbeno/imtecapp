@@ -51,7 +51,6 @@ def create_sync_log(sync_type):
 def truncate_string(input_string, max_length):
     return input_string[:max_length]
 
-
 def update_sync_log(sync_log, log_details, status="Success"):
     """Update the Sync Log entry with accumulated log details and final status."""
     max_log_length = 65535
@@ -82,7 +81,10 @@ def update_sync_log(sync_log, log_details, status="Success"):
 def log_message(sync_log, message):
     """Append a message to the Sync Log."""
     if sync_log:
-        sync_log.log_details += message + "\n"
+        if sync_log.log_details:
+            sync_log.log_details += message + "\n"
+        else:
+            sync_log.log_details = message + "\n"
         sync_log.save(ignore_permissions=True)
         frappe.db.commit()
 
@@ -768,30 +770,89 @@ def sync_all_active_products(sync_progress_name=None):
 
 @frappe.whitelist()
 def sync_all_products_for_update():
-    # Initialize log accumulation
-    log_details = ""
+    log_details = ""  # Initialize log accumulation for overall sync
     sync_log = create_sync_log("Sync All Products for Update")
 
     # Debugging print statement
     print(
-        "Starting sync_all_products_for_update function...",
+        "Starting sync_all_products function...",
         file=open("/home/frappe/frappe-bench/logs/sync.debug.log", "a"),
     )
 
-    insert_data_from_for_insert_eline_data()
-
     try:
+        # Insert or update products based on `for_insert_eline_data.json`
+        try:
+            log_details += "Inserting or updating data from for_insert_eline_data.json...\n"
+            insert_data_from_for_insert_eline_data()
+            log_details += "Data insertion or update completed.\n"
+        except Exception as e:
+            log_details += f"Error while inserting or updating data: {str(e)}\n"
+            update_sync_log(sync_log, log_details, status="Failed")
+            return  # Exit early since there was an error
+
+        # Fetch products that are marked for update
+        log_details += "Fetching products marked for update...\n"
         products_for_update = frappe.get_all(
             "Proizvodi", filters={"status": "for_update"}, fields=["art_sifra"]
         )
 
+        log_details += f"Found {len(products_for_update)} products for update.\n"
+
         for product in products_for_update:
-            result = sync_product_to_prestashop_manual(product.art_sifra)
-            log_details += result + "\n"  # Accumulate logs for each product sync
+            try:
+                result = sync_product_to_prestashop_manual(product["art_sifra"])
+                log_details += f"Product {product['art_sifra']} sync result: {result}\n"
+            except Exception as e:
+                log_details += f"Failed to sync product {product['art_sifra']}: {str(e)}\n"
+                frappe.log_error(f"Failed to sync product {product['art_sifra']}: {str(e)}", "Product Sync Error")
 
             # Debugging print statement
             print(
-                f"Processed product {product.art_sifra}",
+                f"Processed product {product['art_sifra']}",
+                file=open("/home/frappe/frappe-bench/logs/sync.debug.log", "a"),
+            )
+
+        # Fetch products that are marked for insert
+        log_details += "Fetching products marked for insert...\n"
+        products_for_insert = frappe.get_all(
+            "Proizvodi", filters={"status": "for_insert"}, fields=["art_sifra"]
+        )
+
+        log_details += f"Found {len(products_for_insert)} products for insert.\n"
+
+        for product in products_for_insert:
+            try:
+                result = sync_product_to_prestashop_insert(product["art_sifra"])
+                log_details += f"Product {product['art_sifra']} sync result: {result}\n"
+            except Exception as e:
+                log_details += f"Failed to insert product {product['art_sifra']}: {str(e)}\n"
+                frappe.log_error(f"Failed to insert product {product['art_sifra']}: {str(e)}", "Product Insert Error")
+
+            # Debugging print statement
+            print(
+                f"Processed product {product['art_sifra']} for insert",
+                file=open("/home/frappe/frappe-bench/logs/sync.debug.log", "a"),
+            )
+
+        # Fetch products that are marked for rename
+        log_details += "Fetching products marked for rename...\n"
+        products_for_rename = frappe.get_all(
+            "Proizvodi", filters={"status": "for_rename"}, fields=["art_sifra"]
+        )
+
+        log_details += f"Found {len(products_for_rename)} products for rename.\n"
+
+        for product in products_for_rename:
+            try:
+                result = sync_product_to_prestashop_rename(product["art_sifra"])
+                log_details += f"Product {product['art_sifra']} sync result: {result}\n"
+            except Exception as e:
+                log_details += f"Failed to rename product {product['art_sifra']}: {str(e)}\n"
+                frappe.log_error(f"Failed to rename product {product['art_sifra']}: {str(e)}", "Product Rename Error")
+
+            # Debugging print statement
+            print(
+                f"Processed product {product['art_sifra']} for rename",
                 file=open("/home/frappe/frappe-bench/logs/sync.debug.log", "a"),
             )
 
@@ -809,10 +870,9 @@ def sync_all_products_for_update():
         )
 
     print(
-        "Completed sync_all_products_for_update function.",
+        "Completed sync_all_products function.",
         file=open("/home/frappe/frappe-bench/logs/sync.debug.log", "a"),
     )
-
 
 @frappe.whitelist()
 def sync_all_stanje_products(batch_size=500):
@@ -923,3 +983,87 @@ def manual_insert_product_from_json(art_sifra):
 def reset_products_status():
     frappe.db.sql("""UPDATE tabProizvodi SET status = ''""")
     frappe.db.commit()
+
+
+def sync_product_to_prestashop_insert(art_sifra):
+    """
+    Insert a product into PrestaShop based on its art_sifra.
+    """
+    log_details = ""  # Initialize log accumulation for individual insert
+    sync_log = create_sync_log("Insert Product")  # Proper sync_log object
+
+    try:
+        # Fetch the product document
+        product = frappe.get_doc("Proizvodi", {"art_sifra": art_sifra})
+
+        # Prepare new product data for inserting
+        new_product_data = {
+            "art_sifra": product.art_sifra,
+            "art_naziv": product.art_naziv,
+            "prestashop_category_id": product.prestashop_category_id,
+            "prestashop_manufacturer_id": product.prestashop_manufacturer_id,
+            "vpc": product.vpc,
+            "aktivan": product.aktivan,
+            "stanje": product.stanje,
+            "kataloski": product.kataloski,
+            "hash": product.hash,
+        }
+
+        # Check and create category if needed
+        new_prestashop_category_id = check_and_create_category(product.grupanaziv, sync_log)
+        new_product_data["prestashop_category_id"] = new_prestashop_category_id
+
+        # Check and create manufacturer if needed
+        new_prestashop_manufacturer_id = check_and_create_manufacturer(product.proizvodjac, sync_log)
+        new_product_data["prestashop_manufacturer_id"] = new_prestashop_manufacturer_id
+
+        # Update the Proizvodi document with the new category and manufacturer IDs if they have changed
+        if (
+            product.prestashop_category_id != new_prestashop_category_id
+            or product.prestashop_manufacturer_id != new_prestashop_manufacturer_id
+        ):
+            product.prestashop_category_id = new_prestashop_category_id
+            product.prestashop_manufacturer_id = new_prestashop_manufacturer_id
+            product.save(ignore_permissions=True)
+            frappe.db.commit()  # Commit changes to the database
+
+        # Check if the product already exists in PrestaShop
+        settings = get_prestashop_settings()
+        prestashop_id = search_prestashop_product(settings, new_product_data["art_sifra"], sync_log=sync_log)
+
+        if prestashop_id:
+            # If product exists, update it instead of inserting
+            log_details += f"Product {art_sifra} already exists in PrestaShop with ID {prestashop_id}. Updating product.\n"
+            existing_product_data = get_existing_product_data(settings, prestashop_id, sync_log=sync_log)
+            if existing_product_data:
+                # Update the product in PrestaShop
+                xml_payload = generate_product_xml(new_product_data, prestashop_id)
+                url = f"{settings['presta_url']}/products/{prestashop_id}"
+                response = requests.put(url, headers=get_headers(settings), data=xml_payload.encode("utf-8"))
+
+                if response.status_code in [200, 201]:
+                    log_details += f"Product {art_sifra} updated successfully in PrestaShop.\n"
+                else:
+                    log_details += f"Failed to update product {art_sifra}. Status Code: {response.status_code}, Response: {response.text}\n"
+            else:
+                log_details += f"Failed to retrieve existing product data for {art_sifra}.\n"
+        else:
+            # If product does not exist, insert it
+            log_details += f"Product with reference {new_product_data['art_sifra']} does not exist. Creating it.\n"
+            prestashop_id = create_prestashop_product(settings, new_product_data, sync_log=sync_log)
+            if prestashop_id:
+                product.prestashop_id = prestashop_id
+                product.status = "on_presta"
+                product.save(ignore_permissions=True)
+                frappe.db.commit()  # Commit changes to the database
+                log_details += f"Product {art_sifra} inserted successfully into PrestaShop with ID {prestashop_id}.\n"
+            else:
+                log_details += f"Failed to insert product {art_sifra} into PrestaShop. Check response and product data for issues.\n"
+
+    except frappe.DoesNotExistError:
+        log_details += f"Product with art_sifra {art_sifra} does not exist in ERPNext.\n"
+    except Exception as e:
+        log_details += f"An unexpected error occurred while inserting product {art_sifra}: {str(e)}\n"
+
+    update_sync_log(sync_log, log_details)  # Update sync log with accumulated details
+    return log_details  # Return accumulated logs for each product insert

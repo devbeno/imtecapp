@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 import time
+from imtecapp.api import get_prestashop_mappings
 
 BATCH_SIZE = 1000
 
@@ -13,6 +14,28 @@ BATCH_SIZE = 1000
 def get_erpimtec_settings():
     settings = frappe.get_single("Generalne Postavke")
     return settings
+
+def log_message(sync_log, message):
+    """Append a message to the Sync Log."""
+    if sync_log:
+        if sync_log.log_details:
+            sync_log.log_details += message + "\n"
+        else:
+            sync_log.log_details = message + "\n"
+        sync_log.save(ignore_permissions=True)
+        frappe.db.commit()
+
+def create_sync_log(operation_name):
+    # Create a new Sync Log entry
+    sync_log = frappe.get_doc({
+        "doctype": "Sync Log",
+        "operation_name": operation_name,
+        "start_time": frappe.utils.now(),
+        "status": "In Progress",
+    })
+    sync_log.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return sync_log
 
 
 def get_headers(settings):
@@ -187,9 +210,14 @@ def compare_and_create_for_insert_json():
     # Create a mapping of art_sifra to the current data entries
     current_data_map = {item["art_sifra"]: item for item in current_data}
 
+    # Fetch the Prestashop mappings
+    mappings = get_prestashop_mappings()
+    category_map = {cat["agp_id"]: cat for cat in mappings["categories"]}
+    manufacturer_map = {man["agp_id"]: man for man in mappings["manufacturers"]}
+
     for_insert_data = []
 
-    # Compare the data and prepare for insert or update
+    # Compare the data and prepare for insert, update, or rename
     for new_item in new_data:
         art_sifra = new_item["art_sifra"]
         new_hash = new_item["hash"]
@@ -199,12 +227,35 @@ def compare_and_create_for_insert_json():
             current_hash = current_item["hash"]
 
             if new_hash != current_hash:
-                # If the hashes differ, mark the item for update
                 new_item["status"] = "for_update"
+                print(f"Marked {art_sifra} as for_update because the hash has changed.")
                 for_insert_data.append(new_item)
+            else:
+                print(f"Skipping {art_sifra} as it is already up to date.")
         else:
-            # If the item doesn't exist in current data, mark it for insert
-            new_item["status"] = "for_update"
+            # New item logic
+            agp_id = str(new_item["agp_id"])
+            sifra = new_item["sifra"]
+
+            if agp_id in category_map:
+                prestashop_category = category_map[agp_id]
+                if prestashop_category["grupanaziv"] != new_item["grupanaziv"]:
+                    new_item["status"] = "for_rename"
+                    print(f"Marked {art_sifra} as for_rename for category mismatch.")
+                else:
+                    new_item["status"] = "for_insert"
+                    print(f"Marked {art_sifra} as for_insert for new category.")
+            elif sifra in manufacturer_map:
+                prestashop_manufacturer = manufacturer_map[sifra]
+                if prestashop_manufacturer["proizvodjac"] != new_item["proizvodjac"]:
+                    new_item["status"] = "for_rename"
+                    print(f"Marked {art_sifra} as for_rename for manufacturer mismatch.")
+                else:
+                    new_item["status"] = "for_insert"
+                    print(f"Marked {art_sifra} as for_insert for new manufacturer.")
+            else:
+                new_item["status"] = "for_insert"
+                print(f"Marked {art_sifra} as for_insert because it does not exist in current data.")
             for_insert_data.append(new_item)
 
     # Save the resulting list of items to for_insert_eline_data.json
@@ -212,6 +263,74 @@ def compare_and_create_for_insert_json():
 
     # After processing, move new_eline_data.json to current_eline_data.json
     shutil.move(new_json_path, current_json_path)
+
+
+
+
+def determine_status(current_data_map, new_item, prestashop_mappings):
+    """
+    Determine the status of the new item based on existing data and PrestaShop mappings.
+    """
+    art_sifra = new_item["art_sifra"]
+    new_hash = new_item["hash"]
+    status = None
+    
+    # Check for existing record in current data
+    if art_sifra in current_data_map:
+        current_item = current_data_map[art_sifra]
+        current_hash = current_item["hash"]
+
+        if new_hash != current_hash:
+            status = "for_update"
+        else:
+            log_message(sync_log, f"Skipping {art_sifra} as it is already up to date.")
+            return None
+    else:
+        # Check category and manufacturer mappings in PrestaShop
+        agp_id = str(new_item.get("agp_id", ""))
+        grupanaziv = new_item.get("grupanaziv", "")
+        sifra = new_item.get("sifra", "")
+        proizvodjac = new_item.get("proizvodjac", "")
+
+        # Determine category status
+        category_match = any(
+            cat["agp_id"] == agp_id and cat["grupanaziv"] == grupanaziv
+            for cat in prestashop_mappings["categories"]
+        )
+
+        if not category_match:
+            # Check if agp_id matches but grupanaziv does not
+            agp_id_match = any(
+                cat["agp_id"] == agp_id for cat in prestashop_mappings["categories"]
+            )
+
+            if agp_id_match:
+                status = "for_rename"
+                log_message(sync_log, f"Marked {art_sifra} as for_rename for category name change.")
+            else:
+                status = "for_insert"
+                log_message(sync_log, f"Marked {art_sifra} as for_insert for new category.")
+
+        # Determine manufacturer status
+        manufacturer_match = any(
+            man["agp_id"] == sifra and man["proizvodjac"] == proizvodjac
+            for man in prestashop_mappings["manufacturers"]
+        )
+
+        if not manufacturer_match:
+            # Check if agp_id (manufacturer's ID) matches but proizvodjac does not
+            agp_id_match = any(
+                man["agp_id"] == sifra for man in prestashop_mappings["manufacturers"]
+            )
+
+            if agp_id_match:
+                status = "for_rename"
+                log_message(sync_log, f"Marked {art_sifra} as for_rename for manufacturer name change.")
+            else:
+                status = "for_insert"
+                log_message(sync_log, f"Marked {art_sifra} as for_insert for new manufacturer.")
+
+    return status
 
 
 def insert_data_from_for_insert_eline_data():
@@ -225,12 +344,38 @@ def insert_data_from_for_insert_eline_data():
 
     for item in data:
         art_sifra = item["art_sifra"]
-        # Directly update the record in Proizvodi based on art_sifra
-        frappe.db.set_value("Proizvodi", {"art_sifra": art_sifra}, item)
+
+#        if frappe.db.exists("Proizvodi", {"art_sifra": art_sifra}):
+#            doc = frappe.get_doc("Proizvodi", {"art_sifra": art_sifra})
+#            for key, value in item.items():
+#                if key in doc.as_dict():
+#                    doc.set(key, value)
+#            doc.save(ignore_permissions=True)
+#            log_message(sync_log, f"Updated {art_sifra} in Proizvodi.")
+#        else:
+            # Insert a new record
+        new_doc = frappe.get_doc({
+            "doctype": "Proizvodi",
+            "art_sifra": item.get("art_sifra", ""),
+            "agp_id": item.get("agp_id", ""),
+            "sifra": item.get("sifra", ""),
+            "vpc": item.get("vpc", 0.0),
+            "aktivan": item.get("aktivan", 0),
+            "stanje": item.get("stanje", 0),
+            "art_naziv": item.get("art_naziv", ""),
+            "kataloski": item.get("kataloski", ""),
+            "grupanaziv": item.get("grupanaziv", ""),
+            "proizvodjac": item.get("proizvodjac", ""),
+            "status": item.get("status", ""),
+            "hash": item.get("hash", ""),
+            # Add any additional fields that are required in your Proizvodi doctype:
+            # "field_name": item.get("json_key", default_value),
+        })
+        new_doc.insert(ignore_permissions=True)
+        log_message(sync_log, f"Inserted {art_sifra} into Proizvodi.")
 
     # Commit the changes to the database
     frappe.db.commit()
-
 
 def insert_data_from_current_eline_data():
     directory_path = frappe.get_module_path("imtecapp", "data")

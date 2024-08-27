@@ -92,7 +92,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "\nfor_insert\nfor_update\non_presta"
+   "options": "\nfor_insert\nfor_update\nfor_rename\non_presta"
   },
   {
    "description": "External ID",

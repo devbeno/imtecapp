@@ -20,7 +20,7 @@
    "fieldname": "sync_type",
    "fieldtype": "Select",
    "label": "Sync Type",
-   "options": "\nManual Sync\nUpdate All Products\nSync All Active Products\nSync All Products for Update"
+   "options": "\nManual Sync\nUpdate All Products\nSync All Active Products\nSync All Products for Update\nInsert Product"
   },
   {
    "fieldname": "log_details",
@@ -36,7 +36,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-08-25 21:45:55.015244",
+ "modified": "2024-08-27 11:56:32.864512",
  "modified_by": "Administrator",
  "module": "ImtecApp",
  "name": "Sync Log",
