@@ -390,7 +390,7 @@ def check_and_create_manufacturer(manufacturer_name, sync_log=None):
 
 
 @frappe.whitelist()
-def sync_product_to_prestashop_manual(art_sifra):
+def sync_product_to_prestashop_manual(art_sifra, sync_log=None):
     log_details = ""  # Initialize log accumulation for individual sync
 
     try:
@@ -412,12 +412,12 @@ def sync_product_to_prestashop_manual(art_sifra):
         }
 
         # Check and create category if needed
-        new_prestashop_category_id = check_and_create_category(product.grupanaziv)
+        new_prestashop_category_id = check_and_create_category(product.grupanaziv, sync_log)
         new_product_data["prestashop_category_id"] = new_prestashop_category_id
 
         # Check and create manufacturer if needed
         new_prestashop_manufacturer_id = check_and_create_manufacturer(
-            product.proizvodjac
+            product.proizvodjac, sync_log
         )
         new_product_data["prestashop_manufacturer_id"] = new_prestashop_manufacturer_id
 
@@ -434,11 +434,11 @@ def sync_product_to_prestashop_manual(art_sifra):
         # Sync product to PrestaShop
         settings = get_prestashop_settings()
         prestashop_id = search_prestashop_product(
-            settings, new_product_data["art_sifra"]
+            settings, new_product_data["art_sifra"], sync_log=sync_log
         )
 
         if prestashop_id:
-            existing_product_data = get_existing_product_data(settings, prestashop_id)
+            existing_product_data = get_existing_product_data(settings, prestashop_id, sync_log=sync_log)
             if existing_product_data:
                 # Use existing data to preserve certain fields if not provided
                 for field in [
@@ -469,13 +469,14 @@ def sync_product_to_prestashop_manual(art_sifra):
                 if response.status_code in [200, 201]:
                     log_details += f"Product {new_product_data['art_sifra']} synced successfully.\n"
                     # Immediately update stock after successful product sync
-                    stock_available_id = get_stock_available_id(settings, prestashop_id)
+                    stock_available_id = get_stock_available_id(settings, prestashop_id, sync_log=sync_log)
                     if stock_available_id:
                         update_stock_quantity(
                             settings,
                             stock_available_id,
                             prestashop_id,
                             new_product_data["stanje"],
+                            sync_log=sync_log
                         )
                 else:
                     log_details += (
@@ -487,14 +488,14 @@ def sync_product_to_prestashop_manual(art_sifra):
 
         else:
             log_details += f"Product with reference {new_product_data['art_sifra']} does not exist. Creating it.\n"
-            prestashop_id = create_prestashop_product(settings, new_product_data)
+            prestashop_id = create_prestashop_product(settings, new_product_data, sync_log=sync_log)
             if prestashop_id:
                 product.prestashop_id = prestashop_id
                 product.save(ignore_permissions=True)
                 frappe.db.commit()
                 # Immediately update stock after successful product creation
                 update_stock_quantity(
-                    settings, prestashop_id, new_product_data["stanje"]
+                    settings, prestashop_id, new_product_data["stanje"], sync_log=sync_log
                 )
 
     except frappe.DoesNotExistError:
@@ -502,6 +503,7 @@ def sync_product_to_prestashop_manual(art_sifra):
     except Exception as e:
         log_details += f"An unexpected error occurred: {str(e)}\n"
 
+    log_message(sync_log, log_details)  # Log details for each product sync
     return log_details  # Return accumulated logs for each product sync
 
 
@@ -645,12 +647,12 @@ def get_sync_progress():
         return {"total_records": 0, "processed_records": 0, "status": "Not Started"}
 
 
-def sync_product(art_sifra):
+def sync_product(art_sifra, sync_log=None):
     """
     Sync a single product to PrestaShop.
     """
     try:
-        sync_product_to_prestashop_manual(art_sifra)
+        sync_product_to_prestashop_manual(art_sifra, sync_log=sync_log)
         # Mark as synced
         frappe.db.set_value(
             "Proizvodi", {"art_sifra": art_sifra}, "status", "on_presta"
@@ -730,7 +732,7 @@ def sync_all_active_products(sync_progress_name=None):
         # Process each product without batching
         for product in active_products:
             try:
-                sync_product_to_prestashop_manual(product["art_sifra"])
+                sync_product_to_prestashop_manual(product["art_sifra"], sync_log=sync_progress)
 
                 # Update status to "on_presta" after successful sync
                 frappe.db.set_value(
@@ -800,7 +802,7 @@ def sync_all_products_for_update():
 
         for product in products_for_update:
             try:
-                result = sync_product_to_prestashop_manual(product["art_sifra"])
+                result = sync_product_to_prestashop_manual(product["art_sifra"], sync_log=sync_log)
                 log_details += f"Product {product['art_sifra']} sync result: {result}\n"
             except Exception as e:
                 log_details += f"Failed to sync product {product['art_sifra']}: {str(e)}\n"
@@ -822,7 +824,7 @@ def sync_all_products_for_update():
 
         for product in products_for_insert:
             try:
-                result = sync_product_to_prestashop_insert(product["art_sifra"])
+                result = sync_product_to_prestashop_insert(product["art_sifra"], sync_log=sync_log)
                 log_details += f"Product {product['art_sifra']} sync result: {result}\n"
             except Exception as e:
                 log_details += f"Failed to insert product {product['art_sifra']}: {str(e)}\n"
@@ -844,7 +846,7 @@ def sync_all_products_for_update():
 
         for product in products_for_rename:
             try:
-                result = sync_product_to_prestashop_rename(product["art_sifra"])
+                result = sync_product_to_prestashop_rename(product["art_sifra"], sync_log=sync_log)
                 log_details += f"Product {product['art_sifra']} sync result: {result}\n"
             except Exception as e:
                 log_details += f"Failed to rename product {product['art_sifra']}: {str(e)}\n"
@@ -898,7 +900,7 @@ def sync_all_stanje_products(batch_size=500):
             # Process each product in the current batch
             for product in stanje_products:
                 # Sync each product to PrestaShop and collect the log details
-                result = sync_product_to_prestashop_manual(product["art_sifra"])
+                result = sync_product_to_prestashop_manual(product["art_sifra"], sync_log=sync_log)
                 log_details += result + "\n"
 
             # Update the sync log with the accumulated log details after each batch
@@ -947,7 +949,7 @@ def manual_insert_product_from_json(art_sifra):
 
     if existing_product:
         # If the product exists, update it using the sync function
-        log_details = sync_product_to_prestashop_manual(art_sifra)
+        log_details = sync_product_to_prestashop_manual(art_sifra, sync_log=sync_log)
         frappe.msgprint(_("Product with art_sifra {0} updated.").format(art_sifra))
     else:
         # If the product does not exist, create it
@@ -971,7 +973,7 @@ def manual_insert_product_from_json(art_sifra):
         frappe.db.commit()
 
         # After inserting, sync the new product to PrestaShop
-        sync_product_to_prestashop_manual(art_sifra)
+        sync_product_to_prestashop_manual(art_sifra, sync_log=sync_log)
         frappe.msgprint(
             _("Product with art_sifra {0} successfully inserted and synced.").format(
                 art_sifra
@@ -985,12 +987,11 @@ def reset_products_status():
     frappe.db.commit()
 
 
-def sync_product_to_prestashop_insert(art_sifra):
+def sync_product_to_prestashop_insert(art_sifra, sync_log=None):
     """
     Insert a product into PrestaShop based on its art_sifra.
     """
     log_details = ""  # Initialize log accumulation for individual insert
-    sync_log = create_sync_log("Insert Product")  # Proper sync_log object
 
     try:
         # Fetch the product document
@@ -1065,5 +1066,225 @@ def sync_product_to_prestashop_insert(art_sifra):
     except Exception as e:
         log_details += f"An unexpected error occurred while inserting product {art_sifra}: {str(e)}\n"
 
-    update_sync_log(sync_log, log_details)  # Update sync log with accumulated details
+    log_message(sync_log, log_details)  # Log details for each product insert
     return log_details  # Return accumulated logs for each product insert
+
+
+
+def sync_product_to_prestashop_rename(art_sifra, sync_log="Rename Items"):
+    """
+    Rename a category or manufacturer in PrestaShop based on the product's current state in ERPNext.
+    """
+    log_details = ""  # Initialize log accumulation for individual rename
+
+    try:
+        # Fetch the product document
+        product = frappe.get_doc("Proizvodi", {"art_sifra": art_sifra})
+
+        # Get PrestaShop settings
+        settings = get_prestashop_settings()
+
+        # Determine if we are renaming a category or a manufacturer
+        if product.grupanaziv:
+            # Fetch the current category mapping
+            current_category = frappe.db.get_value(
+                "Proizvodi",
+                {"art_sifra": art_sifra},
+                ["prestashop_category_id", "grupanaziv"],
+                as_dict=True
+            )
+            
+            if current_category and current_category["prestashop_category_id"]:
+                # Generate the XML payload to rename the category
+                xml_payload = f"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
+                    <category>
+                        <id>{current_category["prestashop_category_id"]}</id>
+                        <name>
+                            <language id="1"><![CDATA[{product.grupanaziv}]]></language>
+                            <language id="2"><![CDATA[{product.grupanaziv}]]></language>
+                        </name>
+                    </category>
+                </prestashop>
+                """.strip()
+
+                # Make a PUT request to update the category name in PrestaShop
+                url = f"{settings['presta_url']}/categories/{current_category['prestashop_category_id']}"
+                response = requests.put(url, headers=get_headers(settings), data=xml_payload.encode("utf-8"))
+
+                if response.status_code in [200, 201]:
+                    log_details += f"Category renamed to {product.grupanaziv} successfully in PrestaShop.\n"
+                else:
+                    log_details += f"Failed to rename category. Status Code: {response.status_code}, Response: {response.text}\n"
+
+        if product.proizvodjac:
+            # Fetch the current manufacturer mapping
+            current_manufacturer = frappe.db.get_value(
+                "Proizvodi",
+                {"art_sifra": art_sifra},
+                ["prestashop_manufacturer_id", "proizvodjac"],
+                as_dict=True
+            )
+            
+            if current_manufacturer and current_manufacturer["prestashop_manufacturer_id"]:
+                # Generate the XML payload to rename the manufacturer
+                xml_payload = f"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
+                    <manufacturer>
+                        <id>{current_manufacturer["prestashop_manufacturer_id"]}</id>
+                        <name><![CDATA[{product.proizvodjac}]]></name>
+                    </manufacturer>
+                </prestashop>
+                """.strip()
+
+                # Make a PUT request to update the manufacturer name in PrestaShop
+                url = f"{settings['presta_url']}/manufacturers/{current_manufacturer['prestashop_manufacturer_id']}"
+                response = requests.put(url, headers=get_headers(settings), data=xml_payload.encode("utf-8"))
+
+                if response.status_code in [200, 201]:
+                    log_details += f"Manufacturer renamed to {product.proizvodjac} successfully in PrestaShop.\n"
+                else:
+                    log_details += f"Failed to rename manufacturer. Status Code: {response.status_code}, Response: {response.text}\n"
+
+    except frappe.DoesNotExistError:
+        log_details += f"Product with art_sifra {art_sifra} does not exist in ERPNext.\n"
+    except Exception as e:
+        log_details += f"An unexpected error occurred while renaming product {art_sifra}: {str(e)}\n"
+
+    log_message(sync_log, log_details)  # Log details for each product rename
+    return log_details  # Return accumulated logs for each product rename
+
+
+
+
+
+
+def rename_category(group_name, new_name, sync_log=None):
+    """
+    Rename a category in PrestaShop if needed.
+    
+    :param group_name: The current group name in the ERP system.
+    :param new_name: The new name to be set in PrestaShop.
+    :param sync_log: The sync log document to append log messages to.
+    """
+    existing_category_id = frappe.db.get_value(
+        "Proizvodi",
+        {"grupanaziv": group_name, "prestashop_category_id": ["is", "set"]},
+        "prestashop_category_id",
+    )
+
+    if existing_category_id:
+        # Fetch current category details from PrestaShop to compare names
+        settings = get_prestashop_settings()
+        url = f"{settings['presta_url']}/categories/{existing_category_id}"
+        response = requests.get(url, headers=get_headers(settings))
+
+        if response.status_code == 200:
+            try:
+                clean_response_text = clean_response(response.text)
+                root = ET.fromstring(clean_response_text)
+                current_name = root.find(".//name/language").text
+
+                if current_name != new_name:
+                    # Rename the category if the name differs
+                    rename_payload = f"""
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <category>
+                            <id>{existing_category_id}</id>
+                            <name>
+                                <language id="1"><![CDATA[{new_name}]]></language>
+                                <language id="2"><![CDATA[{new_name}]]></language>
+                            </name>
+                        </category>
+                    </prestashop>
+                    """.strip()
+
+                    rename_response = requests.put(url, headers=get_headers(settings), data=rename_payload.encode("utf-8"))
+
+                    if rename_response.status_code in [200, 201]:
+                        log_message(sync_log, f"Category '{group_name}' renamed to '{new_name}' in PrestaShop.")
+                        frappe.db.sql(
+                            """
+                            UPDATE `tabProizvodi`
+                            SET grupanaziv = %s
+                            WHERE prestashop_category_id = %s
+                            """,
+                            (new_name, existing_category_id),
+                        )
+                        frappe.db.commit()
+                    else:
+                        log_message(sync_log, f"Failed to rename category '{group_name}' in PrestaShop. Status Code: {rename_response.status_code}")
+                else:
+                    log_message(sync_log, f"Category '{group_name}' name already matches the new name '{new_name}'. No rename needed.")
+            except ET.ParseError as e:
+                log_message(sync_log, f"Failed to parse XML from response: {e}")
+        else:
+            log_message(sync_log, f"Failed to fetch category '{group_name}' details from PrestaShop. Status Code: {response.status_code}")
+    else:
+        log_message(sync_log, f"No existing PrestaShop category ID found for '{group_name}'.")
+
+
+def rename_manufacturer(manufacturer_name, new_name, sync_log=None):
+    """
+    Rename a manufacturer in PrestaShop if needed.
+    
+    :param manufacturer_name: The current manufacturer name in the ERP system.
+    :param new_name: The new name to be set in PrestaShop.
+    :param sync_log: The sync log document to append log messages to.
+    """
+    existing_manufacturer_id = frappe.db.get_value(
+        "Proizvodi",
+        {"proizvodjac": manufacturer_name, "prestashop_manufacturer_id": ["is", "set"]},
+        "prestashop_manufacturer_id",
+    )
+
+    if existing_manufacturer_id:
+        # Fetch current manufacturer details from PrestaShop to compare names
+        settings = get_prestashop_settings()
+        url = f"{settings['presta_url']}/manufacturers/{existing_manufacturer_id}"
+        response = requests.get(url, headers=get_headers(settings))
+
+        if response.status_code == 200:
+            try:
+                clean_response_text = clean_response(response.text)
+                root = ET.fromstring(clean_response_text)
+                current_name = root.find(".//name").text
+
+                if current_name != new_name:
+                    # Rename the manufacturer if the name differs
+                    rename_payload = f"""
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
+                        <manufacturer>
+                            <id>{existing_manufacturer_id}</id>
+                            <name><![CDATA[{new_name}]]></name>
+                        </manufacturer>
+                    </prestashop>
+                    """.strip()
+
+                    rename_response = requests.put(url, headers=get_headers(settings), data=rename_payload.encode("utf-8"))
+
+                    if rename_response.status_code in [200, 201]:
+                        log_message(sync_log, f"Manufacturer '{manufacturer_name}' renamed to '{new_name}' in PrestaShop.")
+                        frappe.db.sql(
+                            """
+                            UPDATE `tabProizvodi`
+                            SET proizvodjac = %s
+                            WHERE prestashop_manufacturer_id = %s
+                            """,
+                            (new_name, existing_manufacturer_id),
+                        )
+                        frappe.db.commit()
+                    else:
+                        log_message(sync_log, f"Failed to rename manufacturer '{manufacturer_name}' in PrestaShop. Status Code: {rename_response.status_code}")
+                else:
+                    log_message(sync_log, f"Manufacturer '{manufacturer_name}' name already matches the new name '{new_name}'. No rename needed.")
+            except ET.ParseError as e:
+                log_message(sync_log, f"Failed to parse XML from response: {e}")
+        else:
+            log_message(sync_log, f"Failed to fetch manufacturer '{manufacturer_name}' details from PrestaShop. Status Code: {response.status_code}")
+    else:
+        log_message(sync_log, f"No existing PrestaShop manufacturer ID found for '{manufacturer_name}'.")
