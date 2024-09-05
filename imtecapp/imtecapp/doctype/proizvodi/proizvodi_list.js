@@ -144,10 +144,10 @@ frappe.listview_settings['Proizvodi'] = {
         });
 
         // Button to Sync All Active Products with Progress Dialog
-        listview.page.add_button(__('Sync All Active Products'), function() {
+        listview.page.add_button(__('Uvezi Sve Aktivne proizvode'), function() {
             // Initialize the progress dialog
             let progress_dialog = new frappe.ui.Dialog({
-                title: __('Syncing Products to PrestaShop'),
+                title: __('Insert u toku ...'),
                 fields: [
                     {
                         fieldtype: 'HTML',
