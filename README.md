@@ -1,0 +1,1 @@
+Ensure all server-side methods (fetch_and_insert_current_eline_data, sync_product_to_prestashop_manual, manual_insert_product_from_json, update_product_status) are defined, imported, and functional.
