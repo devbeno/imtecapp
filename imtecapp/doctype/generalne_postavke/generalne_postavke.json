@@ -1,0 +1,172 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-08-13 18:11:17.411315",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "generalne_postavke",
+  "general",
+  "presta_key",
+  "presta_url",
+  "tax_id_rules",
+  "category_default_id",
+  "shop_default_id",
+  "first_time_insert",
+  "last_sync_time",
+  "api_linkovi",
+  "api_erp_linkovi",
+  "api_artikli",
+  "api_partneri",
+  "api_grupe",
+  "api_cjenovnik",
+  "api_cjenovnik_sa_stanjem",
+  "api_kljucevi",
+  "api_erp",
+  "username_erpimtec",
+  "password_erpimtec"
+ ],
+ "fields": [
+  {
+   "default": "KorisnikServisa",
+   "fieldname": "username_erpimtec",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Korisnicko ime",
+   "reqd": 1
+  },
+  {
+   "default": "tajnaLozinka572!",
+   "fieldname": "password_erpimtec",
+   "fieldtype": "Password",
+   "in_list_view": 1,
+   "label": "Lozinka",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "api_erp",
+   "fieldtype": "Section Break",
+   "label": "API Kljucevi"
+  },
+  {
+   "default": "https://www2.eline.ba/BL/RestServisi.svc/Artikli/569d014f0a724b2798ec99902401ba3d/0",
+   "fieldname": "api_artikli",
+   "fieldtype": "Data",
+   "label": "Artikli"
+  },
+  {
+   "default": "https://www2.eline.ba/BL/RestServisi.svc/Partneri/569d014f0a724b2798ec99902401ba3d/-42",
+   "fieldname": "api_partneri",
+   "fieldtype": "Data",
+   "label": "Partneri"
+  },
+  {
+   "default": "https://www2.eline.ba/BL/RestServisi.svc/GrupeArtikala/569d014f0a724b2798ec99902401ba3d/0",
+   "fieldname": "api_grupe",
+   "fieldtype": "Data",
+   "label": "Grupe"
+  },
+  {
+   "default": "https://www2.eline.ba/bl/RestShopEx.svc/CjenovnikSkladista/569d014f0a724b2798ec99902401ba3d/39",
+   "fieldname": "api_cjenovnik",
+   "fieldtype": "Data",
+   "label": "Cjenovnik"
+  },
+  {
+   "default": "https://www2.eline.ba/bl/RestServisi.svc/Cjenovnik/569d014f0a724b2798ec99902401ba3d/0",
+   "fieldname": "api_cjenovnik_sa_stanjem",
+   "fieldtype": "Data",
+   "label": "Cjenovnik sa stanjem"
+  },
+  {
+   "default": "VMXPFM1H1QY2Y2JM43DSD2T5VLIEDRH7",
+   "fieldname": "presta_key",
+   "fieldtype": "Data",
+   "label": "presta_key"
+  },
+  {
+   "default": "https://test2.imtec.ba/api",
+   "fieldname": "presta_url",
+   "fieldtype": "Data",
+   "label": "presta_url"
+  },
+  {
+   "fieldname": "generalne_postavke",
+   "fieldtype": "Tab Break",
+   "label": "General"
+  },
+  {
+   "fieldname": "general",
+   "fieldtype": "Section Break",
+   "label": "Glavne"
+  },
+  {
+   "fieldname": "api_linkovi",
+   "fieldtype": "Tab Break",
+   "label": "API Linkovi"
+  },
+  {
+   "fieldname": "api_erp_linkovi",
+   "fieldtype": "Section Break",
+   "label": "API Postavke"
+  },
+  {
+   "fieldname": "api_kljucevi",
+   "fieldtype": "Tab Break",
+   "label": "API Kljucevi"
+  },
+  {
+   "default": "https://test2.imtec.ba/api",
+   "fieldname": "tax_id_rules",
+   "fieldtype": "Int",
+   "label": "Tax ID Rules"
+  },
+  {
+   "default": "https://test2.imtec.ba/api",
+   "fieldname": "category_default_id",
+   "fieldtype": "Int",
+   "label": "Category Default ID"
+  },
+  {
+   "default": "https://test2.imtec.ba/api",
+   "fieldname": "shop_default_id",
+   "fieldtype": "Int",
+   "label": "Shop Default ID"
+  },
+  {
+   "default": "1",
+   "fieldname": "first_time_insert",
+   "fieldtype": "Check",
+   "label": "first_time_insert"
+  },
+  {
+   "fieldname": "last_sync_time",
+   "fieldtype": "Datetime",
+   "label": "last_sync_time"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2024-08-15 06:06:26.732816",
+ "modified_by": "Administrator",
+ "module": "ImtecApp",
+ "name": "Generalne Postavke",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

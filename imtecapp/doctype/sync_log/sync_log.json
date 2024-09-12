@@ -1,0 +1,68 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-08-22 14:47:52.387286",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "sync_date",
+  "sync_type",
+  "log_details",
+  "status",
+  "messages"
+ ],
+ "fields": [
+  {
+   "fieldname": "sync_date",
+   "fieldtype": "Datetime",
+   "label": "Sync Date"
+  },
+  {
+   "fieldname": "sync_type",
+   "fieldtype": "Select",
+   "label": "Sync Type",
+   "options": "\nManual Sync\nUpdate All Products\nSync All Active Products\nSync All Products for Update\nInsert Product\nRename Product\nFor Rename\nSuccess\nFailed\nFetching products marked for insert...\nSync Product\nTest Insert Sync"
+  },
+  {
+   "fieldname": "log_details",
+   "fieldtype": "Long Text",
+   "label": "Log Details"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "\nIn Progress\nSuccess\nPartial Success\nFailed\nFor Rename\nSuccess\nFailed\nFetching products marked for insert...\nSync Product\nTest Insert Sync"
+  },
+  {
+   "fieldname": "messages",
+   "fieldtype": "Table",
+   "label": "Messages",
+   "options": "Sync Log Message"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-09-12 03:00:17.764033",
+ "modified_by": "Administrator",
+ "module": "ImtecApp",
+ "name": "Sync Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

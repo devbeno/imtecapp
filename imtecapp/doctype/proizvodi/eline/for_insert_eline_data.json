@@ -1,0 +1,30 @@
+[
+    {
+        "art_sifra": "100004",
+        "agp_id": 1,
+        "sifra": "100000",
+        "vpc": 111111.487,
+        "aktivan": 1,
+        "stanje": 11111,
+        "art_naziv": "aaaaabbbCCCCc Cyan",
+        "kataloski": "C9701A",
+        "grupanaziv": "ToneriToneriToneriToneriToneri",
+        "proizvodjac": "HPHPHPHPHPHP",
+        "hash": "11cd8722073a7ae667a7cc7bf97b3565",
+        "status": "for_rename"
+    },
+    {
+        "art_sifra": "100005",
+        "agp_id": 1,
+        "sifra": "100000",
+        "vpc": 2222.65,
+        "aktivan": 1,
+        "stanje": 2222,
+        "art_naziv": "HPHPHPPHPHPHPHPHPHPHPHPHPHPHP",
+        "kataloski": "Q2610A",
+        "grupanaziv": "Toneri originalni",
+        "proizvodjac": "HP",
+        "hash": "adac7d33d46848dd1ed3b49cd0b8743e",
+        "status": "for_update"
+    }
+]
