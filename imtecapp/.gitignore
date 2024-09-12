@@ -1,0 +1,82 @@
+# Ignore all __pycache__ folders
+**/__pycache__/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs and local databases
+*.log
+*.sqlite3
+*.db
+
+# Test coverage results
+.coverage
+.tox/
+nosetests.xml
+coverage.xml
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Frappe specific ignore patterns
+*.swp
+*.swo
+*.swn
+*.bak
+*.orig
+*.save
+*.tmp
+
+# Ignore compiled files
+*.min.js
+*.min.css
+
+# Ignore node_modules and dependencies
+node_modules/
+
+# Ignore virtual environment folder
+env/
+venv/
+
+# Ignore package-lock.json and yarn.lock (optional if using npm/yarn)
+package-lock.json
+yarn.lock
+
+# Ignore bench artifacts
+*.tar.gz
+*.whl
+
+# Ignore config and local environment files
+*.conf
+*.local.conf
+*.env
+
+# Ignore Frappe bench logs
+logs/
+*.log
+
+# Ignore generated files
+public/js/*.js
+public/css/*.css
+
+# Ignore backup files and archives
+*.bak
+*.backup
+*.sql.gz
+*.tar
+
+# Ignore test files and reports
+*.xml
+test*.py
+
+# Ignore pycaches
+__pycache__/
+
+# Ignore compiled HTML files (optional if not needed)
+*.html
+
+# Ignore Frappe build assets
+*.map
