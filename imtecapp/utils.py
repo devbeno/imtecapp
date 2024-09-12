@@ -3,7 +3,7 @@ import frappe
 from frappe import _
 
 
-def truncate_message(message: str, max_length: int = 140) -> str:
+def truncate_message(message: str, max_length: int = 259) -> str:
     """Truncate the log message intelligently, preserving key details."""
     if len(message) > max_length:
         # Split message into segments and preserve first and last parts

@@ -160,9 +160,21 @@ def create_prestashop_category(category):
                         "@id": "2",  # Language ID, assuming '1' is the default language (change if needed)
                         "#text": group_name
                     }
+                ],
+                "language": [
+                    {
+                        "@id": "21",  # Language ID, assuming '1' is the default language (change if needed)
+                        "#text": group_name
+                    }
                 ]
             },
             "link_rewrite": {
+                "language": [
+                    {
+                        "@id": "2",  # Language ID
+                        "#text": link_rewrite  # URL-friendly link rewrite
+                    }
+                ],
                 "language": [
                     {
                         "@id": "2",  # Language ID
